@@ -2,16 +2,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "ADK",
+    name: "ArtAdk",
     platforms: [
         .iOS(.v15)
     ],
     products: [
-        .library(name: "ADK", targets: ["ADK"])
+        .library(name: "ArtAdk", targets: ["ArtAdk"])
     ],
     targets: [
         .target(
-            name: "ADK",
+            name: "ArtAdk",
             path: "Sources/ADK",
             publicHeadersPath: "include",
             cSettings: [
