@@ -24,7 +24,6 @@ Objective-C SDK for **[ART - A Realtime Tech Communication](https://arealtimetec
 ## Installation
 
 ### Swift Package Manager
-
 ```swift
 dependencies: [
     .package(
