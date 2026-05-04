@@ -12,7 +12,6 @@
 #import "CryptoBox.h"
 #import "CryptoTypes.h"
 #import "Interception.h"
-#import "LogTracer.h"
 #import "Socket.h"
 #import "SocketTypes.h"
 #import "Utils.h"
@@ -77,8 +76,6 @@
             rawUrl = [rawUrl substringToIndex:rawUrl.length - 1];
         }
         if (rawUrl.length == 0) {
-            [LogTracer
-                log:@" Adk: WARNING - empty URI, network calls will fail"];
         }
 
         Constant.BASE_URL = [NSString stringWithFormat:@"https://%@", rawUrl];
@@ -325,11 +322,6 @@
 
     if (self.reconnectAttempts < self.maxReconnectAttempts) {
         self.reconnectAttempts++;
-        [LogTracer
-            log:[NSString stringWithFormat:
-                              @"Attempting to reconnect in %.0fs (attempt %ld)",
-                              self.reconnectDelay / 1000.0,
-                              (long)self.reconnectAttempts]];
 
         double delayMs = self.reconnectDelay;
         dispatch_block_t work = dispatch_block_create(0, ^{
@@ -347,10 +339,6 @@
             dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0),
             work);
     } else {
-        [LogTracer
-            log:[NSString stringWithFormat:@" Max reconnection attempts "
-                                           @"reached. Will retry every %.0fs",
-                                           self.maxDelay / 1000.0]];
 
         dispatch_block_t work = dispatch_block_create(0, ^{
           typeof(self) strongSelf = weakSelf;
@@ -549,10 +537,6 @@
                         return;
                     }
 
-                    if (data) {
-                        [LogTracer printJSONData:data
-                                           title:@"SavePublicKey Response"];
-                    }
 
                     NSHTTPURLResponse *http = nil;
                     if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
