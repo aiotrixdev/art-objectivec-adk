@@ -4,14 +4,15 @@ import PackageDescription
 let package = Package(
     name: "ArtAdk",
     platforms: [
-        .iOS(.v15)
+        .iOS(.v15),
+        .macOS(.v10_15)
     ],
     products: [
-        .library(name: "ArtAdk", targets: ["ArtAdk"])
+        .library(name: "ArtAdkObjC", targets: ["ArtAdkObjC"])
     ],
     targets: [
         .target(
-            name: "ArtAdk",
+            name: "ArtAdkObjC",
             path: "Sources/ADK",
             publicHeadersPath: "include",
             cSettings: [
