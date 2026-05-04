@@ -27,7 +27,7 @@ Objective-C SDK for **[ART - A Realtime Tech Communication](https://arealtimetec
 ```swift
 dependencies: [
     .package(
-        url: "https://dev.azure.com/BixBytesSolutions/ART%20IPR-0063/_git/art-objectivec-adk",
+        url: "https://github.com/aiotrixdev/art-objectivec-adk.git",
         from: "1.0.0"
     )
 ]
