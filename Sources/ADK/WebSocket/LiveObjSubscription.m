@@ -4,7 +4,6 @@
 //
 
 #import "LiveObjSubscription.h"
-#import "LogTracer.h"
 
 static NSArray<NSDictionary *> *SerializeOps(NSArray<CRDTOperation *> *ops);
 static NSDictionary *SerializeEntry(LDEntry *entry);
@@ -108,9 +107,7 @@ static LDEntryType EntryTypeFromString(NSString *str) {
               data:serializedOps
         completion:^(NSError *error) {
           if (error) {
-              [LogTracer
-                  log:[NSString stringWithFormat:@" CRDT merge push failed: %@",
-                                                 error]];
+    
           }
           (void)weakSelf;
         }];
@@ -177,7 +174,6 @@ static LDEntryType EntryTypeFromString(NSString *str) {
     }
 
     if (!rawOps) {
-        [LogTracer log:@" Failed to parse CRDT ops"];
         return;
     }
 

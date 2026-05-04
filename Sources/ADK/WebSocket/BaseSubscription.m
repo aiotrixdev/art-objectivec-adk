@@ -5,7 +5,6 @@
 
 #import "BaseSubscription.h"
 #import "HelperFunctions.h"
-#import "LogTracer.h"
 #import "Utils.h"
 
 @interface PendingAck : NSObject
@@ -77,10 +76,6 @@
                       return;
 
                   if (error) {
-                      [LogTracer
-                          log:[NSString stringWithFormat:
-                                            @" validateSubscription error: %@",
-                                            error]];
                       return;
                   }
 
@@ -165,10 +160,6 @@
               options:nil
               completion:^(NSError *pushError) {
                 if (pushError) {
-                    [LogTracer
-                        log:[NSString
-                                stringWithFormat:@" presence push error: %@",
-                                                 pushError]];
                 }
               }];
 
@@ -293,10 +284,6 @@
                   }
 
                   if (error) {
-                      [LogTracer
-                          log:[NSString
-                                  stringWithFormat:@" subscribe error: %@",
-                                                   error]];
                       strongSelf.isSubscribed = NO;
                   } else {
                       strongSelf.channelConfig = config;
@@ -330,10 +317,6 @@
                       }
 
                       if (error) {
-                          [LogTracer
-                              log:[NSString
-                                      stringWithFormat:
-                                          @" unsubscribe error: %@", error]];
                       } else if (ok) {
                           [strongSelf.websocketHandler
                               removeSubscription:strongSelf.channelConfig
@@ -532,9 +515,6 @@
         NSString *msgStr = [[NSString alloc] initWithData:msgData
                                                  encoding:NSUTF8StringEncoding];
         if (msgStr) {
-            [LogTracer
-                printJSONString:msgStr
-                          title:@"\n✅ Pushing Message Data=============>"];
             [self.websocketHandler sendMessage:msgStr];
         }
     }
@@ -604,7 +584,6 @@
               [[NSString alloc] initWithData:msgData
                                     encoding:NSUTF8StringEncoding];
           if (msgStr) {
-              [LogTracer printJSONString:msgStr title:@"CRDT Push"];
               [strongSelf.websocketHandler sendMessage:msgStr];
           }
       }

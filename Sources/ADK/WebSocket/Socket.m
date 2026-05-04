@@ -15,7 +15,6 @@
 #import "HttpPoll.h"
 #import "Interception.h"
 #import "LiveObjSubscription.h"
-#import "LogTracer.h"
 #import "Subscription.h"
 #import "Utils.h"
 
@@ -216,10 +215,6 @@ static NSLock *SocketSingletonLock(void) {
           return;
       }
 
-      [LogTracer
-          log:[NSString stringWithFormat:@" WebSocket failed, trying SSE: %@",
-                                         wsError]];
-
       // 2. Try SSE
       [strongSelf connectSSE:^(NSError *_Nullable sseError) {
         typeof(self) strongSelf2 = weakSelf;
@@ -233,11 +228,6 @@ static NSLock *SocketSingletonLock(void) {
                 completion(nil);
             return;
         }
-
-        [LogTracer
-            log:[NSString stringWithFormat:
-                              @" SSE failed, falling back to LongPoll: %@",
-                              sseError]];
 
         // 3. LongPoll
         strongSelf2.pullSource = @"http";
@@ -276,10 +266,6 @@ static NSLock *SocketSingletonLock(void) {
                 return;
 
             if (authError) {
-                [LogTracer
-                    log:[NSString
-                            stringWithFormat:@" Authentication failed: %@",
-                                             authError]];
                 strongSelf.isConnecting = NO;
                 [strongSelf.emitter emit:@"close" data:authError];
                 if (completion)
@@ -317,9 +303,6 @@ static NSLock *SocketSingletonLock(void) {
                     completion(urlErr);
                 return;
             }
-
-            [LogTracer log:[NSString stringWithFormat:@"\n✅ WebSocket URL: %@",
-                                                      wsURL]];
 
             // Close any existing socket
             [strongSelf safeClose:^{
@@ -404,7 +387,6 @@ static NSLock *SocketSingletonLock(void) {
 }
 
 - (void)connectSSE:(void (^)(NSError *_Nullable))completion {
-    [LogTracer log:@" Connecting SSE"];
 
     NSError *authInstanceErr = nil;
     Auth *auth = [Auth getInstance:self.credentials error:&authInstanceErr];
@@ -450,8 +432,6 @@ static NSLock *SocketSingletonLock(void) {
                     completion(MakeError(ErrorCodeInvalidPath, @"Bad SSE URL"));
                 return;
             }
-
-            [LogTracer log:[NSString stringWithFormat:@" SSE URL: %@", sseURL]];
 
             NSMutableURLRequest *req =
                 [NSMutableURLRequest requestWithURL:sseURL];
@@ -518,10 +498,6 @@ static NSLock *SocketSingletonLock(void) {
                     task:(NSURLSessionTask *)task
     didCompleteWithError:(nullable NSError *)error {
     if (task == self.sseTask) {
-        if (error) {
-            [LogTracer
-                log:[NSString stringWithFormat:@" SSE error: %@", error]];
-        }
         self.isConnectionActive = NO;
         self.sseTask = nil;
     }
@@ -545,9 +521,6 @@ static NSLock *SocketSingletonLock(void) {
                   tenantName:self.credentials.orgTitle
                  environment:self.credentials.environment
                   projectKey:self.credentials.projectKey];
-
-    [LogTracer log:[NSString stringWithFormat:@"\n✅ Live connection opened %@",
-                                              self.connection.connectionId]];
     [self.emitter emit:@"connection" data:self.connection];
     self.isConnectionActive = YES;
     [self startHeartbeat];
@@ -745,11 +718,6 @@ static NSLock *SocketSingletonLock(void) {
                                            process:@"subscribe"];
                       }
 
-                      [LogTracer
-                          log:[NSString
-                                  stringWithFormat:
-                                      @"✅ Subscription created: %@", channel]];
-
                       // Store subscription and grab any buffered messages
                       __block NSMutableArray *buffered = nil;
                       [strongSelf2 withSocketLock:^{
@@ -764,11 +732,6 @@ static NSLock *SocketSingletonLock(void) {
                           for (NSDictionary *item in buffered) {
                               NSString *evt = item[@"event"] ?: @"";
                               NSDictionary *payload = item[@"payload"] ?: @{};
-                              [LogTracer
-                                  log:[NSString stringWithFormat:
-                                                    @" Replaying buffered "
-                                                    @"message for %@",
-                                                    channel]];
                               [subscription handleMessage:evt payload:payload];
                           }
                       }
@@ -880,7 +843,6 @@ static NSLock *SocketSingletonLock(void) {
 - (void)handleIncomingMessage:(NSDictionary *)parsed {
     NSString *channel = parsed[@"channel"];
     if (![channel isKindOfClass:[NSString class]]) {
-        [LogTracer log:@" Message missing channel"];
         return;
     }
 
@@ -946,7 +908,6 @@ static NSLock *SocketSingletonLock(void) {
     // Messages without channel or event
     if (channel.length == 0 ||
         (event.length == 0 && ![returnFlag isEqualToString:@"SA"])) {
-        [LogTracer log:@" Message without channel or event"];
         return;
     }
 
@@ -971,10 +932,6 @@ static NSLock *SocketSingletonLock(void) {
 
         if (interception) {
             [interception handleMessage:channel data:payload];
-        } else {
-            [LogTracer
-                log:[NSString stringWithFormat:@" No interception for: %@",
-                                               interceptorName]];
         }
         return;
     }
@@ -1001,32 +958,24 @@ static NSLock *SocketSingletonLock(void) {
           }
           [buffer addObject:@{@"event" : event, @"payload" : payload}];
         }];
-        [LogTracer
-            log:[NSString
-                    stringWithFormat:@" No subscription for %@ -- buffering",
-                                     subKey]];
     }
 }
 
 - (void)switchToHttpPoll {
     if ([self.pullSource isEqualToString:@"http"])
         return;
-    [LogTracer log:@" Shifting to HTTP poll"];
     self.pullSource = @"http";
     self.pushSource = @"http";
     [self.lpClient start:self.connection.connectionId ?: @""];
 }
 
 - (BOOL)sendMessage:(NSString *)message {
-    [LogTracer printJSONString:message
-                         title:@"\n✅ Received Web Socket Data=============>"];
 
     NSURLSessionWebSocketTask *task = self.websocket;
     if (!task || task.state != NSURLSessionTaskStateRunning) {
         [self withSocketLock:^{
           [self.pendingSendMessages addObject:message];
         }];
-        [LogTracer log:@" WebSocket not open -- message buffered"];
         return NO;
     }
 
@@ -1252,9 +1201,6 @@ static NSLock *SocketSingletonLock(void) {
                                           encoding:NSUTF8StringEncoding];
     }
 
-    [LogTracer
-        log:[NSString stringWithFormat:@" WS closed: %ld %@", (long)closeCode,
-                                       reasonStr ?: @""]];
     [self.emitter emit:@"close" data:@(closeCode)];
 }
 
