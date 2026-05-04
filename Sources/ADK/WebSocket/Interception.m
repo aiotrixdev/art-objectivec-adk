@@ -5,7 +5,6 @@
 
 #import "Interception.h"
 #import "HelperFunctions.h"
-#import "LogTracer.h"
 #import "Utils.h"
 
 @interface Interception ()
@@ -47,8 +46,6 @@
 }
 
 - (void)reconnect {
-    [LogTracer log:[NSString stringWithFormat:@" reconnecting interceptor %@",
-                                              _interceptorName]];
     [self validateInterception:^(NSError *error){
 
     }];
@@ -154,8 +151,6 @@
       }
 
       if (!dataDict) {
-          [LogTracer
-              log:@" Interception resolve: invalid data (must be JSON object)"];
           return;
       }
 

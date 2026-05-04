@@ -4,7 +4,6 @@
 //
 
 #import "Subscription.h"
-#import "LogTracer.h"
 
 @implementation Subscription
 
@@ -99,10 +98,6 @@
                          return;
 
                      if (secureError) {
-                         [LogTracer
-                             log:[NSString
-                                     stringWithFormat:@" Decryption error: %@",
-                                                      secureError]];
                          return;
                      }
 
@@ -129,11 +124,6 @@
                                   completion:^(NSString *decrypted,
                                                NSError *decError) {
                                     if (decError) {
-                                        [LogTracer
-                                            log:[NSString stringWithFormat:
-                                                              @" Decryption "
-                                                              @"error: %@",
-                                                              decError]];
                                         return;
                                     }
                                     mutablePayload[@"data"] = decrypted;

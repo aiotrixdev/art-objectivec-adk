@@ -15,8 +15,6 @@
 #import "../Types/ChannelTypes.h"
 #import "../Types/SocketTypes.h"
 
-// Helper / Logging
-#import "../Helper/LogTracer.h"
 
 // CRDT
 #import "../CRDT/CRDTTypes.h"
