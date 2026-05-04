@@ -7,11 +7,11 @@ let package = Package(
         .iOS(.v15)
     ],
     products: [
-        .library(name: "ArtAdk", targets: ["ArtAdk"])
+        .library(name: "ArtAdkObjC", targets: ["ArtAdkObjC"])
     ],
     targets: [
         .target(
-            name: "ArtAdk",
+            name: "ArtAdkObjC",
             path: "Sources/ADK",
             publicHeadersPath: "include",
             cSettings: [
