@@ -20,7 +20,6 @@ let package = Package(
                 .headerSearchPath("CRDT"),
                 .headerSearchPath("Crypto"),
                 .headerSearchPath("Crypto/TweetNaCl"),
-                .headerSearchPath("Helper"),
                 .headerSearchPath("Types"),
                 .headerSearchPath("WebSocket")
             ]
