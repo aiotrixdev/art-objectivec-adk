@@ -20,7 +20,8 @@ Pod::Spec.new do |spec|
   # 2. Source and Headers (Mapped from path: "Sources/ADK" and publicHeadersPath: "include")
   # This grabs all Objective-C and C files inside your ADK folder
   spec.source_files  = "Sources/ADK/**/*.{h,m,c,mm,cpp}"
-  spec.public_header_files = "Sources/ADK/include/**/*.h"
+  spec.public_header_files = "Sources/ADK/**/*.h"
+  spec.header_mappings_dir = "Sources/ADK"
 
   # 3. Build Settings (Mapped from cSettings and cLanguageStandard)
   spec.pod_target_xcconfig = {
