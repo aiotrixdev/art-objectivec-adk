@@ -9,7 +9,7 @@ Pod::Spec.new do |spec|
 
   spec.homepage     = "https://arealtimetech.com/"
   spec.license      = { :type => "MIT", :file => "LICENSE" }
-  spec.author       = { "Sachin Acharya" => "sachinacharya856@gmail.com" }
+  spec.author       = { "AIOTRIX DEVELOPERS" => "aiotrix.dev@gmail.com" }
   
   spec.source       = { :git => "https://github.com/aiotrixdev/art-objectivec-adk.git", :tag => spec.version.to_s }
 
