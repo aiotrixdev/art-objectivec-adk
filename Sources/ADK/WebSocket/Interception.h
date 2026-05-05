@@ -1,10 +1,15 @@
+#ifndef ARTADK_WEBSOCKET_INTERCEPTION_H
+#define ARTADK_WEBSOCKET_INTERCEPTION_H
+
+#pragma once
+
 //
 //  Interception.h
 //  ADK
 //
 
 #import "EventEmitter.h"
-#import "../Types/SocketTypes.h"
+#import <ArtAdk/Types/SocketTypes.h>
 #import <Foundation/Foundation.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -36,3 +41,5 @@ typedef void (^InterceptorFn)(NSDictionary *request, InterceptorResolve resolve,
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif /* ARTADK_WEBSOCKET_INTERCEPTION_H */

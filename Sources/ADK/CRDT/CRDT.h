@@ -1,3 +1,8 @@
+#ifndef ARTADK_CRDT_CRDT_H
+#define ARTADK_CRDT_CRDT_H
+
+#pragma once
+
 //
 //  CRDT.h
 //  ADK
@@ -134,3 +139,5 @@ typedef void (^CRDTMergeCallback)(NSArray<CRDTOperation *> *ops);
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif /* ARTADK_CRDT_CRDT_H */

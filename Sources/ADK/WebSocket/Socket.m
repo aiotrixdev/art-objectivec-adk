@@ -758,10 +758,10 @@ static NSLock *SocketSingletonLock(void) {
         return;
     }
 
-    [HelperFunctions subscribeToChannel:channelName
-                                process:process
-                       websocketHandler:self
-                             completion:completion];
+   [HelperFunctions subscribeToChannel:channelName
+                               process:process
+                      websocketHandler:self
+                            completion:completion];
 }
 
 - (nullable ConnectionDetail *)getConnection {

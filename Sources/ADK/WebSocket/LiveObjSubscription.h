@@ -1,3 +1,8 @@
+#ifndef ARTADK_WEBSOCKET_LIVEOBJSUBSCRIPTION_H
+#define ARTADK_WEBSOCKET_LIVEOBJSUBSCRIPTION_H
+
+#pragma once
+
 //
 //  LiveObjSubscription.h
 //  ADK
@@ -6,7 +11,7 @@
 
 #import <Foundation/Foundation.h>
 #import "BaseSubscription.h"
-#import "../CRDT/CRDT.h"
+#import <ArtAdk/CRDT/CRDT.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -25,3 +30,5 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif /* ARTADK_WEBSOCKET_LIVEOBJSUBSCRIPTION_H */
