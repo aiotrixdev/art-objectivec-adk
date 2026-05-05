@@ -1,3 +1,5 @@
+#pragma once
+
 #ifndef TWEETNACL_H
 #define TWEETNACL_H
 #define crypto_auth_PRIMITIVE "hmacsha512256"

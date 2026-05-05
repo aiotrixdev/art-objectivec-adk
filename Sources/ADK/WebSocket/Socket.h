@@ -1,9 +1,14 @@
+#ifndef ARTADK_WEBSOCKET_SOCKET_H
+#define ARTADK_WEBSOCKET_SOCKET_H
+
+#pragma once
+
 //
 //  Socket.h
 //  ADK
 //
 
-#import "../Types/SocketTypes.h"
+#import <ArtAdk/Types/SocketTypes.h>
 #import <Foundation/Foundation.h>
 
 @class AuthenticationConfig;
@@ -91,3 +96,5 @@ typedef void (^DecryptBlock)(NSString *data, NSString *key,
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif /* ARTADK_WEBSOCKET_SOCKET_H */

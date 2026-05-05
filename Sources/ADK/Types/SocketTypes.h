@@ -1,3 +1,8 @@
+#ifndef ARTADK_TYPES_SOCKETTYPES_H
+#define ARTADK_TYPES_SOCKETTYPES_H
+
+#pragma once
+
 //
 //  SocketTypes.h
 //  ADK
@@ -121,3 +126,5 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif /* ARTADK_TYPES_SOCKETTYPES_H */

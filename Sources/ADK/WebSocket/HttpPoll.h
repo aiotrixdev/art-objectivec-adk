@@ -1,3 +1,8 @@
+#ifndef ARTADK_WEBSOCKET_HTTPPOLL_H
+#define ARTADK_WEBSOCKET_HTTPPOLL_H
+
+#pragma once
+
 //
 //  LongPollClient.h
 //  ADK
@@ -5,8 +10,7 @@
 
 
 #import <Foundation/Foundation.h>
-#import "../Types/SocketTypes.h"
-
+#import <ArtAdk/Types/SocketTypes.h>
 NS_ASSUME_NONNULL_BEGIN
 
 @interface LongPollClient : NSObject
@@ -23,3 +27,5 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif /* ARTADK_WEBSOCKET_HTTPPOLL_H */

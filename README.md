@@ -33,6 +33,15 @@ dependencies: [
 ]
 ```
 
+### CocoaPods
+
+[CocoaPods](https://cocoapods.org) is a dependency manager for Cocoa projects. For usage and installation instructions, visit their website. To integrate ART ADK into your Xcode project using CocoaPods, specify it in your `Podfile`:
+```ruby
+pod 'ArtAdk', '~> 1.0.0'
+```
+
+$ pod install
+
 Then add `ArtAdk` to your target dependencies.
 
 Or in Xcode:

@@ -1,11 +1,16 @@
+#ifndef ARTADK_WEBSOCKET_BASESUBSCRIPTION_H
+#define ARTADK_WEBSOCKET_BASESUBSCRIPTION_H
+
+#pragma once
+
 //
 //  BaseSubscription.h
 //  ADK
 //
 
-#import "../Types/ChannelTypes.h"
+#import <ArtAdk/Types/ChannelTypes.h>
 #import "EventEmitter.h"
-#import "../Types/SocketTypes.h"
+#import <ArtAdk/Types/SocketTypes.h>
 #import <Foundation/Foundation.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -63,3 +68,5 @@ typedef void (^PresenceUnsubscribe)(void (^_Nullable done)(void));
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif /* ARTADK_WEBSOCKET_BASESUBSCRIPTION_H */

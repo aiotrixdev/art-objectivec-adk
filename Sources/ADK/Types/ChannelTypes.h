@@ -1,3 +1,8 @@
+#ifndef ARTADK_TYPES_CHANNELTYPES_H
+#define ARTADK_TYPES_CHANNELTYPES_H
+
+#pragma once
+
 //
 //  ChannelTypes.h
 //  ADK
@@ -29,3 +34,5 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif /* ARTADK_TYPES_CHANNELTYPES_H */
