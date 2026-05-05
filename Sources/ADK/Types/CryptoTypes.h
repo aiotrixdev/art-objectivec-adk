@@ -1,3 +1,8 @@
+#ifndef ARTADK_TYPES_CRYPTOTYPES_H
+#define ARTADK_TYPES_CRYPTOTYPES_H
+
+#pragma once
+
 //
 //  CryptoTypes.h
 //  ADK
@@ -20,3 +25,5 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif /* ARTADK_TYPES_CRYPTOTYPES_H */

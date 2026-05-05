@@ -1,3 +1,8 @@
+#ifndef ARTADK_WEBSOCKET_ADK_H
+#define ARTADK_WEBSOCKET_ADK_H
+
+#pragma once
+
 //
 //  Adk.h
 //  ADK
@@ -92,3 +97,5 @@ typedef NS_ENUM(NSInteger, AdkState) {
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif /* ARTADK_WEBSOCKET_ADK_H */

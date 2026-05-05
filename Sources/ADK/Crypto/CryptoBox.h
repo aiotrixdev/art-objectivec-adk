@@ -1,9 +1,14 @@
+#ifndef ARTADK_CRYPTO_CRYPTOBOX_H
+#define ARTADK_CRYPTO_CRYPTOBOX_H
+
+#pragma once
+
 //
 //  CryptoBox.h
 //  ADK
 //
 
-#import "../Types/CryptoTypes.h"
+#import <ArtAdk/Types/CryptoTypes.h>
 #import <Foundation/Foundation.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -54,3 +59,5 @@ typedef NS_ENUM(NSInteger, CryptoBoxErrorCode) {
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif /* ARTADK_CRYPTO_CRYPTOBOX_H */
