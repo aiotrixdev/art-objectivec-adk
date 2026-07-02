@@ -125,14 +125,27 @@
                           ? request[@"ref_id"]
                           : @"";
 
-    NSDictionary *config = @{
+    NSMutableDictionary *config = [@{
         @"channel" : channel,
         @"namespace" : namespace_,
         @"event" : event,
         @"interceptor_name" : interceptorName,
         @"from" : from,
         @"to" : to ?: [NSNull null]
-    };
+    } mutableCopy];
+    // Forward the agentic routing / correlation fields when present, so an
+    // interceptor's resolve/reject preserves them (js-adk-common realtime-comm
+    // fix; mirrors the Swift/Flutter interceptor forwarding).
+    for (NSString *k in @[
+             @"thread_id", @"node_id", @"agent_node_id", @"agent_id",
+             @"environment_id", @"to_username", @"configuration_id",
+             @"root_workflow_id"
+         ]) {
+        id v = request[k];
+        if (v) {
+            config[k] = v;
+        }
+    }
 
     __weak typeof(self) weakSelf = self;
 
@@ -209,7 +222,11 @@
 
     NSArray<NSString *> *keys = @[
         @"channel", @"namespace", @"id", @"ref_id", @"from", @"to",
-        @"pipeline_id", @"interceptor_name", @"attempt_id"
+        @"pipeline_id", @"interceptor_name", @"attempt_id",
+        // Agentic routing / correlation fields (js-adk-common parity).
+        @"thread_id", @"node_id", @"agent_node_id", @"agent_id",
+        @"environment_id", @"to_username", @"configuration_id",
+        @"root_workflow_id"
     ];
     for (NSString *k in keys) {
         id val = request[k];

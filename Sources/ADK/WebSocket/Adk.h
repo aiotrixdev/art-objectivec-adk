@@ -18,6 +18,8 @@
 @class BaseSubscription;
 @class Interception;
 @class CallApiProps;
+@class Agent;
+@class Orchestrator;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -56,6 +58,23 @@ typedef NS_ENUM(NSInteger, AdkState) {
 - (void)subscribe:(NSString *)channel
        completion:(void (^)(BaseSubscription *_Nullable subscription,
                             NSError *_Nullable error))completion;
+
+#pragma mark - Agentic
+
+/// Returns an Agent handle for `agentId` (channel `agent_com_<agentId>`).
+- (Agent *)agent:(NSString *)agentId;
+
+/// Returns an Orchestrator handle for `orchestratorId`
+/// (channel `orch_com_<orchestratorId>`).
+- (Orchestrator *)orchestrator:(NSString *)orchestratorId;
+
+/// Registers a handler fired after each RE-connection (not the first connect),
+/// so agentic threads can re-attach listeners after a transport bounce.
+/// Returns an id for removal via `offReconnected:`.
+- (NSUUID *)onReconnected:(void (^)(void))handler;
+
+/// Removes a handler registered with `onReconnected:`.
+- (void)offReconnected:(NSUUID *)identifier;
 
 - (void)intercept:(NSString *)interceptor
                fn:(void (^)(NSDictionary *request, void (^resolve)(id data),

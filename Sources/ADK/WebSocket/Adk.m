@@ -4,6 +4,8 @@
 //
 
 #import "Adk.h"
+#import "Agent.h"
+#import "Orchestrator.h"
 #import "Auth.h"
 #import "AuthTypes.h"
 #import "BaseSubscription.h"
@@ -41,6 +43,11 @@
 @property(nonatomic, strong) NSUUID *connectionListenerId;
 @property(nonatomic, strong) NSUUID *closeListenerId;
 
+// Agentic reconnect hooks
+@property(nonatomic, strong)
+    NSMutableDictionary<NSUUID *, void (^)(void)> *reconnectedHandlers;
+@property(nonatomic, assign) BOOL hasConnectedOnce;
+
 @end
 
 @implementation Adk
@@ -56,6 +63,8 @@
         _maxDelay = 5000;       // 5 seconds
         _isPaused = NO;
         _isConnectable = NO;
+        _reconnectedHandlers = [NSMutableDictionary dictionary];
+        _hasConnectedOnce = NO;
 
         // Normalise the URI: strip any scheme the caller may have
         // included ("https://", "http://", "wss://", "ws://") so the
@@ -303,6 +312,18 @@
     self.reconnectAttempts = 0;
     self.reconnectDelay = 3000;
     [self onConnectedHook:connection];
+
+    // Fire onReconnected handlers on every connect after the first, so agentic
+    // threads can re-attach their listeners after a transport bounce.
+    if (self.hasConnectedOnce) {
+        NSArray<void (^)(void)> *handlers =
+            [self.reconnectedHandlers.allValues copy];
+        for (void (^handler)(void) in handlers) {
+            handler();
+        }
+    } else {
+        self.hasConnectedOnce = YES;
+    }
 }
 
 - (void)handleOnClose {
@@ -367,6 +388,29 @@
        completion:(void (^)(BaseSubscription *_Nullable,
                             NSError *_Nullable))completion {
     [self.socket subscribe:channel completion:completion];
+}
+
+#pragma mark - Agentic
+
+- (Agent *)agent:(NSString *)agentId {
+    return [[Agent alloc] initWithAgentId:agentId socket:self.socket];
+}
+
+- (Orchestrator *)orchestrator:(NSString *)orchestratorId {
+    return [[Orchestrator alloc] initWithOrchestratorId:orchestratorId
+                                                 socket:self.socket];
+}
+
+- (NSUUID *)onReconnected:(void (^)(void))handler {
+    NSUUID *identifier = [NSUUID UUID];
+    self.reconnectedHandlers[identifier] = [handler copy];
+    return identifier;
+}
+
+- (void)offReconnected:(NSUUID *)identifier {
+    if (identifier) {
+        [self.reconnectedHandlers removeObjectForKey:identifier];
+    }
 }
 
 - (void)intercept:(NSString *)interceptor

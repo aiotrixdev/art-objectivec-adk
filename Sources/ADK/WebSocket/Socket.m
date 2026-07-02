@@ -905,9 +905,14 @@ static NSLock *SocketSingletonLock(void) {
         return;
     }
 
-    // Messages without channel or event
-    if (channel.length == 0 ||
-        (event.length == 0 && ![returnFlag isEqualToString:@"SA"])) {
+    // Drop ONLY when the channel is empty (mirrors js-adk-common / Flutter
+    // socket). Agentic replies (orchestrator & agent) carry their semantic
+    // type inside `content` (e.g. `agent_general_response`,
+    // `human_input_request`) and leave the wire-level `event` empty — yet they
+    // must still route to the thread's event-agnostic "<threadId>-all"
+    // listener. Dropping on an empty `event` here would make the orchestrator
+    // "connect, but never reply".
+    if (channel.length == 0) {
         return;
     }
 
@@ -949,7 +954,9 @@ static NSLock *SocketSingletonLock(void) {
 
     if (sub) {
         [sub handleMessage:event payload:payload];
-    } else {
+    } else if (![returnFlag isEqualToString:@"SA"]) {
+        // Don't buffer bare server acks that have no subscription yet
+        // (mirrors Flutter socket's `else if returnFlag != 'SA'`).
         [self withSocketLock:^{
           NSMutableArray *buffer = self.pendingIncomingMessages[subKey];
           if (!buffer) {
