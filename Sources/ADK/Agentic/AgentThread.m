@@ -153,6 +153,20 @@
     [self ensureMasterListener:nil];
 }
 
+- (void)listenTrace:(void (^)(id data))callback {
+    void (^cb)(id) = [callback copy];
+    __weak typeof(self) weakSelf = self;
+    [self.agent getSubscription:^(Subscription *_Nullable sub,
+                                  NSError *_Nullable error) {
+      __strong typeof(weakSelf) strongSelf = weakSelf;
+      if (!sub || !strongSelf) {
+          return;
+      }
+      [sub bind:@"trace" callback:cb];
+      [sub attachThreadBind:strongSelf.threadId event:@"trace" callback:cb];
+    }];
+}
+
 - (void)feedbackRequest:(AgentHumanInputHandler)handler {
     [self.lock lock];
     [self.feedbackHandlers addObject:[handler copy]];

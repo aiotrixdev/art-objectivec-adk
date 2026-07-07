@@ -37,6 +37,11 @@ typedef void (^AgentHumanInputHandler)(HumanInputRequest *req, Run *run);
 /// installs the underlying subscription listener.
 - (void)listen:(AgentUserListener)callback;
 
+/// Subscribes `callback` to inbound `trace` diagnostic / telemetry frames
+/// (heartbeats, checkpoints, deadlock signals) on this thread. Each frame is
+/// delivered as its raw value. Mirrors js-adk-common `AgentThread.listenTrace`.
+- (void)listenTrace:(void (^)(id data))callback;
+
 /// Registers a handler invoked on each HumanInputRequest for the active Run.
 - (void)feedbackRequest:(AgentHumanInputHandler)handler;
 

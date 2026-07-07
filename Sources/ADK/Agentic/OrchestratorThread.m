@@ -89,6 +89,15 @@
     [self.attachedEvents addObject:event];
 }
 
+- (void)listenTrace:(void (^)(id))callback {
+    if (self.disposed) {
+        return;
+    }
+    [self.subscription bind:@"trace" callback:callback];
+    [self.subscription attachThreadBind:self.threadId event:@"trace" callback:callback];
+    [self.attachedEvents addObject:@"trace"];
+}
+
 - (void)remove:(NSString *)event {
     if (self.disposed) {
         return;
@@ -102,8 +111,14 @@
         return;
     }
     self.disposed = YES;
+    BOOL hadTrace = [self.attachedEvents containsObject:@"trace"];
     for (NSString *event in [self.attachedEvents copy]) {
         [self.subscription detachThreadListener:self.threadId event:event];
+    }
+    // `listenTrace` also binds a channel-level `trace` listener; the loop above
+    // only detaches the thread-scoped one, so clear it too.
+    if (hadTrace) {
+        [self.subscription remove:@"trace"];
     }
     [self.attachedEvents removeAllObjects];
     [self.subscription unregisterThread:self.threadId];

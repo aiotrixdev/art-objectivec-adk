@@ -250,6 +250,24 @@
     }
 
     // -------------------------------------------------------
+    // TRACE (diagnostic / telemetry) FRAMES
+    // -------------------------------------------------------
+    // Emitted directly to their listeners, bypassing the subscribed-state gate
+    // + the normal buffering path (mirrors js-adk-common subscription.ts).
+    // Consumers attach via `AgentThread.listenTrace` /
+    // `OrchestratorThread.listenTrace`.
+    if ([event isEqualToString:@"trace"]) {
+        id traceTid = mutablePayload[@"thread_id"];
+        NSString *traceThreadId =
+            ([traceTid isKindOfClass:[NSString class]] &&
+             [(NSString *)traceTid length] > 0)
+                ? (NSString *)traceTid
+                : nil;
+        [self emitThreadEvent:@"trace" content:content threadId:traceThreadId];
+        return;
+    }
+
+    // -------------------------------------------------------
     // EMIT TO LISTENERS (thread-aware)
     // -------------------------------------------------------
     if (!self.isSubscribed)

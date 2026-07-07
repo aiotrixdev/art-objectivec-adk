@@ -46,6 +46,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// Subscribes `callback` to a single named `event` within this thread.
 - (void)bind:(NSString *)event callback:(void (^)(id content))callback;
 
+/// Subscribes `callback` to inbound `trace` diagnostic / telemetry frames on
+/// this thread. Binds both the channel-level and thread-scoped `trace` event so
+/// a frame is delivered whether or not it carries a `thread_id`. Mirrors
+/// js-adk-common `OrchestratorThread.listenTrace`.
+- (void)listenTrace:(void (^)(id content))callback;
+
 /// Removes every listener bound to `event` on this thread.
 - (void)remove:(NSString *)event;
 
