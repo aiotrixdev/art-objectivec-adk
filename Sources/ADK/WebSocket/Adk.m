@@ -35,6 +35,10 @@
 // Flags
 @property(nonatomic, assign) BOOL isPaused;
 @property(nonatomic, assign) BOOL isConnectable;
+// Set once the server reports a billing / concurrency limit. Latches
+// auto-reconnection off permanently — `handleOnClose` / `handleReconnection`
+// early-return while this is YES. Mirrors js-adk-common `adk.ts`.
+@property(nonatomic, assign) BOOL isLimitExceeded;
 
 // Reconnect dispatch work item
 @property(nonatomic, strong, nullable) dispatch_block_t reconnectWorkItem;
@@ -63,6 +67,7 @@
         _maxDelay = 5000;       // 5 seconds
         _isPaused = NO;
         _isConnectable = NO;
+        _isLimitExceeded = NO;
         _reconnectedHandlers = [NSMutableDictionary dictionary];
         _hasConnectedOnce = NO;
 
@@ -155,6 +160,30 @@
                                      return;
                                  [strongSelf handleOnClose];
                                }];
+
+        [_socket on:@"limitExceeded"
+              handler:^(id data) {
+                typeof(self) strongSelf = weakSelf;
+                if (!strongSelf)
+                    return;
+                NSDictionary *info = [data isKindOfClass:[NSDictionary class]]
+                                         ? (NSDictionary *)data
+                                         : @{};
+                NSString *code = info[@"code"] ?: @"";
+                NSString *errText = info[@"error"] ?: @"";
+                if ([code isEqualToString:@"CONCURRENT_LIMIT_EXCEEDED"]) {
+                    NSLog(@"[ART] Concurrent connection limit reached: %@. All "
+                          @"reconnection attempts stopped. Call connect() again "
+                          @"to retry.",
+                          errText);
+                } else {
+                    NSLog(@"[ART] Billing limit reached: %@. All reconnection "
+                          @"attempts permanently stopped.",
+                          errText);
+                }
+                strongSelf.isLimitExceeded = YES;
+                strongSelf.isConnectable = NO;
+              }];
     }
     return self;
 }
@@ -327,6 +356,8 @@
 }
 
 - (void)handleOnClose {
+    if (self.isLimitExceeded) // billing / concurrency limit — never auto-reconnect
+        return;
     if (!self.isConnectable)
         return;
     self.socket.isReConnecting = YES;
@@ -334,6 +365,8 @@
 }
 
 - (void)handleReconnection {
+    if (self.isLimitExceeded) // billing / concurrency limit — never auto-reconnect
+        return;
     if (self.reconnectWorkItem) {
         dispatch_block_cancel(self.reconnectWorkItem);
         self.reconnectWorkItem = nil;
