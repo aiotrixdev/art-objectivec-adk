@@ -1,6 +1,6 @@
 Pod::Spec.new do |spec|
   spec.name         = "ArtAdk"
-  spec.version      = "1.0.0" 
+  spec.version      = "1.0.1" 
   spec.summary      = "Objective-C ADK for ART - A Realtime Tech Communication."  
   spec.description  = <<-DESC
                     Objective-C ADK for ART, a realtime messaging platform providing WebSocket-based channels, 
@@ -15,7 +15,7 @@ Pod::Spec.new do |spec|
 
   # 1. Platforms (Mapped from .iOS(.v15) and .macOS(.v10_15))
   spec.ios.deployment_target = "15.0"
-  spec.osx.deployment_target = "10.15"
+  spec.osx.deployment_target = "12.00"
 
   # 2. Source and Headers (Mapped from path: "Sources/ADK" and publicHeadersPath: "include")
   # This grabs all Objective-C and C files inside your ADK folder
