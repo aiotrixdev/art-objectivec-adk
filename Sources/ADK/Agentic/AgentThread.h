@@ -30,7 +30,15 @@ typedef void (^AgentHumanInputHandler)(HumanInputRequest *req, Run *run);
 @property(nonatomic, strong, readonly) Agent *agent;
 @property(nonatomic, copy, readonly) NSString *threadId;
 
-- (instancetype)initWithAgent:(Agent *)agent NS_DESIGNATED_INITIALIZER;
+/// Convenience initializer — equivalent to `initWithAgent:agent threadId:nil`,
+/// which generates a fresh thread id.
+- (instancetype)initWithAgent:(Agent *)agent;
+
+/// Designated initializer. If `threadId` is nil, a fresh id is generated;
+/// otherwise the given id is used (e.g. to resume/rejoin an existing thread).
+- (instancetype)initWithAgent:(Agent *)agent
+                      threadId:(nullable NSString *)threadId
+    NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
 /// Subscribes `callback` to every typed event on this thread. The first call

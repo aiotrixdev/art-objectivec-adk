@@ -29,6 +29,11 @@ NS_ASSUME_NONNULL_BEGIN
 /// thread with its own id; one agent may host many concurrent threads.
 - (AgentThread *)thread;
 
+/// Returns a new AgentThread backed by this agent. If `threadId` is nil, a
+/// fresh id is generated (equivalent to `-thread`); otherwise the given id
+/// is used, allowing callers to resume/rejoin an existing thread.
+- (AgentThread *)threadWithId:(nullable NSString *)threadId;
+
 @end
 
 NS_ASSUME_NONNULL_END

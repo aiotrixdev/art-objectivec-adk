@@ -25,10 +25,14 @@
 @implementation AgentThread
 
 - (instancetype)initWithAgent:(Agent *)agent {
+    return [self initWithAgent:agent threadId:nil];
+}
+
+- (instancetype)initWithAgent:(Agent *)agent threadId:(nullable NSString *)threadId {
     self = [super init];
     if (self) {
         _agent = agent;
-        _threadId = [[self class] generateThreadId];
+        _threadId = threadId.length > 0 ? [threadId copy] : [[self class] generateThreadId];
         _userListeners = [NSMutableArray array];
         _feedbackHandlers = [NSMutableArray array];
         _pendingAfterAttach = [NSMutableArray array];

@@ -28,4 +28,8 @@
     return [[AgentThread alloc] initWithAgent:self];
 }
 
+- (AgentThread *)threadWithId:(nullable NSString *)threadId {
+    return [[AgentThread alloc] initWithAgent:self threadId:threadId];
+}
+
 @end
