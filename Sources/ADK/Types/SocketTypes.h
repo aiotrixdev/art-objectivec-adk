@@ -35,9 +35,15 @@ NS_ASSUME_NONNULL_BEGIN
 @interface PushConfig : NSObject
 
 @property(nonatomic, strong) NSArray<NSString *> *to;
+/// Optional thread id stamped as a top-level `thread_id` on the outgoing
+/// frame, so the server can correlate the message to a logical thread.
+/// Set by `OrchestratorThread.push`. Mirrors the Swift `PushConfig.threadID`.
+@property(nonatomic, copy, nullable) NSString *threadID;
 
 - (instancetype)init;
 - (instancetype)initWithTo:(NSArray<NSString *> *)to NS_DESIGNATED_INITIALIZER;
+- (instancetype)initWithTo:(NSArray<NSString *> *)to
+                  threadID:(nullable NSString *)threadID;
 
 @end
 

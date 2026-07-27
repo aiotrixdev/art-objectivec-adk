@@ -841,10 +841,13 @@ static NSLock *SocketSingletonLock(void) {
 }
 
 - (void)handleIncomingMessage:(NSDictionary *)parsed {
-    NSString *channel = parsed[@"channel"];
-    if (![channel isKindOfClass:[NSString class]]) {
-        return;
-    }
+    // A channel-less frame is normally dropped by the empty-channel check
+    // below; the limit block there must inspect it first for a billing /
+    // concurrency rejection, so coerce a missing/non-string channel to "".
+    id rawChannel = parsed[@"channel"];
+    NSString *channel = [rawChannel isKindOfClass:[NSString class]]
+                            ? (NSString *)rawChannel
+                            : @"";
 
     NSString *event = parsed[@"event"] ?: @"";
     NSString *refId = parsed[@"ref_id"] ?: @"";
@@ -905,9 +908,36 @@ static NSLock *SocketSingletonLock(void) {
         return;
     }
 
-    // Messages without channel or event
-    if (channel.length == 0 ||
-        (event.length == 0 && ![returnFlag isEqualToString:@"SA"])) {
+    // Drop ONLY when the channel is empty (mirrors js-adk-common / Flutter
+    // socket). Agentic replies (orchestrator & agent) carry their semantic
+    // type inside `content` (e.g. `agent_general_response`,
+    // `human_input_request`) and leave the wire-level `event` empty — yet they
+    // must still route to the thread's event-agnostic "<threadId>-all"
+    // listener. Dropping on an empty `event` here would make the orchestrator
+    // "connect, but never reply".
+    if (channel.length == 0) {
+        // Limit block — a billing / concurrency-limit rejection arrives with no
+        // channel, carrying only `code` + `error`. Surface it as `limitExceeded`
+        // so the Adk layer can permanently stop auto-reconnecting, then drop the
+        // frame. Mirrors js-adk-common socket.ts.
+        id codeVal = parsed[@"code"];
+        NSString *code = [codeVal isKindOfClass:[NSString class]]
+                             ? (NSString *)codeVal
+                             : @"";
+        if ([code isEqualToString:@"CONNECTION_MINUTES_LIMIT_EXCEEDED"] ||
+            [code isEqualToString:@"CONCURRENT_LIMIT_EXCEEDED"]) {
+            id errVal = parsed[@"error"];
+            NSString *errText = [errVal isKindOfClass:[NSString class]]
+                                    ? (NSString *)errVal
+                                    : @"";
+            NSString *label =
+                [code isEqualToString:@"CONCURRENT_LIMIT_EXCEEDED"]
+                    ? @"Concurrent connection limit reached"
+                    : @"Connection minutes limit exceeded";
+            NSLog(@"[ART] %@. Reconnection blocked.", label);
+            [self.emitter emit:@"limitExceeded"
+                          data:@{@"code" : code, @"error" : errText}];
+        }
         return;
     }
 
@@ -949,7 +979,9 @@ static NSLock *SocketSingletonLock(void) {
 
     if (sub) {
         [sub handleMessage:event payload:payload];
-    } else {
+    } else if (![returnFlag isEqualToString:@"SA"]) {
+        // Don't buffer bare server acks that have no subscription yet
+        // (mirrors Flutter socket's `else if returnFlag != 'SA'`).
         [self withSocketLock:^{
           NSMutableArray *buffer = self.pendingIncomingMessages[subKey];
           if (!buffer) {
