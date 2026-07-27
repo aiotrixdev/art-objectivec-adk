@@ -1,58 +1,67 @@
 # ART Objective-C ADK
 
-![Objective-C](https://img.shields.io/badge/Objective--C-iOS-blue)
+![Objective-C](https://img.shields.io/badge/Objective--C-2.0-blue)
 ![Platform](https://img.shields.io/badge/iOS-15%2B-blue)
 ![SwiftPM](https://img.shields.io/badge/SwiftPM-supported-orange)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-Objective-C SDK for **[ART - A Realtime Tech Communication](https://arealtimetech.com/)**, a realtime messaging platform providing WebSocket-based channels, presence tracking, end-to-end encrypted messaging, and CRDT-backed shared objects.
+Objective-C SDK for **[ART – A Realtime Tech Communication](https://arealtimetech.com/)**, a realtime communication platform for building intelligent applications with WebSocket-based messaging, AI Agents, AI Orchestrators, presence tracking, end-to-end encrypted channels, and CRDT-backed shared objects.
 
 ---
 
 ## Features
 
 - WebSocket connection management (`connect`, `pause`, `resume`, auto-reconnect)
-- Channel subscriptions (default, targeted, secure, shared-object/CRDT)
-- Push messages with structured payloads
-- Event-based message listening (`bind`, `listen`, `emitter.on`)
+- Channel subscriptions for default, targeted, secure, and shared-object/CRDT channels
+- Structured message pushing with payloads and optional recipients
+- Event-based message listening via `emitter`, `listen`, and `bind`
 - Real-time presence tracking
 - End-to-end encryption support
 - Interceptors for message processing
 - Shared objects using CRDT
+- AI Agent integration
+- AI Orchestrator workflows
 
 ---
 
 ## Installation
 
 ### Swift Package Manager
+
 ```swift
 dependencies: [
     .package(
         url: "https://github.com/aiotrixdev/art-objectivec-adk.git",
-        from: "1.0.0"
+        from: "1.0.1"
     )
 ]
 ```
 
 ### CocoaPods
 
-[CocoaPods](https://cocoapods.org) is a dependency manager for Cocoa projects. For usage and installation instructions, visit their website. To integrate ART ADK into your Xcode project using CocoaPods, specify it in your `Podfile`:
+Add the dependency to your Podfile:
+
 ```ruby
 pod 'ArtAdk', '~> 1.0.0'
 ```
 
-$ pod install
+Then run:
 
-Then add `ArtAdk` to your target dependencies.
+```bash
+pod install
+```
 
-Or in Xcode:
+You can also add the package directly in Xcode via:
 
-**File -> Add Packages -> Paste repository URL**
+**File → Add Packages → Paste repository URL**
 
 Import the SDK where you need it:
 
 ```objc
 #import <ArtAdk/ADK.h>
 ```
+
+---
 
 ## Configuration
 
@@ -99,6 +108,7 @@ ART uses a short-lived passcode for authentication:
     request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body
                                                        options:0
                                                          error:&jsonError];
+
     if (jsonError) {
         completion(nil, jsonError);
         return;
@@ -119,6 +129,8 @@ ART uses a short-lived passcode for authentication:
     }] resume];
 }
 ```
+
+---
 
 ## Quick Start
 
@@ -144,7 +156,7 @@ CredentialStore *creds = [[CredentialStore alloc]
     creds.accessToken = passcode;
 
     AdkConfig *config = [[AdkConfig alloc]
-        initWithUri:@"ws.arealtimetech.com"
+        initWithUri:@"YOUR_WEBSOCKET_URI"
           authToken:passcode
      getCredentials:^CredentialStore *{
         return creds;
@@ -156,7 +168,7 @@ CredentialStore *creds = [[CredentialStore alloc]
     [adk on:@"connection" handler:^(id data) {
         if ([data isKindOfClass:[ConnectionDetail class]]) {
             ConnectionDetail *conn = (ConnectionDetail *)data;
-            NSLog(@"Connected -> %@", conn.connectionId);
+            NSLog(@"Connected → %@", conn.connectionId);
         }
     }];
 
@@ -167,27 +179,29 @@ CredentialStore *creds = [[CredentialStore alloc]
     [adk connect:nil completion:^{
         [adk subscribe:@"room-42"
             completion:^(BaseSubscription *subscription, NSError *subError) {
-              if (subError || !subscription) {
-                  NSLog(@"Subscribe error: %@", subError);
-                  return;
-              }
+                if (subError || !subscription) {
+                    NSLog(@"Subscribe error: %@", subError);
+                    return;
+                }
 
-              [subscription.emitter on:@"message" handler:^(id data) {
-                  NSLog(@"Received: %@", data);
-              }];
+                [subscription.emitter on:@"message" handler:^(id data) {
+                    NSLog(@"Received: %@", data);
+                }];
 
-              [subscription push:@"message"
-                            data:@{@"text": @"Hello ART!"}
-                         options:nil
-                      completion:^(NSError *pushError) {
-                        if (pushError) {
-                            NSLog(@"Push error: %@", pushError);
-                        }
-                      }];
+                [subscription push:@"message"
+                              data:@{@"text": @"Hello ART!"}
+                           options:nil
+                        completion:^(NSError *pushError) {
+                            if (pushError) {
+                                NSLog(@"Push error: %@", pushError);
+                            }
+                        }];
             }];
     }];
 }];
 ```
+
+---
 
 ## Connecting
 
@@ -197,26 +211,38 @@ CredentialStore *creds = [[CredentialStore alloc]
 }];
 ```
 
-Read the current state at any time:
+Safe usage:
+
+```objc
+do {
+    [adk connect:nil completion:^{
+        NSLog(@"Connected");
+    }];
+} while (0);
+```
+
+Check the current state:
 
 ```objc
 [adk getState]; // connected | retrying | paused | stopped
 ```
+
+---
 
 ## Subscribing to a Channel
 
 ```objc
 [adk subscribe:@"room-42"
     completion:^(BaseSubscription *subscription, NSError *error) {
-      if (error || !subscription) {
-          NSLog(@"Subscribe error: %@", error);
-          return;
-      }
+        if (error || !subscription) {
+            NSLog(@"Subscribe error: %@", error);
+            return;
+        }
 
-      if ([subscription isKindOfClass:[LiveObjSubscription class]]) {
-          LiveObjSubscription *live = (LiveObjSubscription *)subscription;
-          NSLog(@"Shared-object channel: %@", live);
-      }
+        if ([subscription isKindOfClass:[LiveObjSubscription class]]) {
+            LiveObjSubscription *live = (LiveObjSubscription *)subscription;
+            NSLog(@"Shared-object channel: %@", live);
+        }
     }];
 ```
 
@@ -228,6 +254,8 @@ Unsubscribe:
 }];
 ```
 
+---
+
 ## Pushing Messages
 
 ```objc
@@ -235,9 +263,9 @@ Unsubscribe:
               data:@{@"text": @"Hello"}
            options:nil
         completion:^(NSError *error) {
-          if (error) {
-              NSLog(@"Push error: %@", error);
-          }
+            if (error) {
+                NSLog(@"Push error: %@", error);
+            }
         }];
 ```
 
@@ -250,17 +278,17 @@ PushConfig *options = [[PushConfig alloc] initWithTo:@[@"bob"]];
               data:@{@"text": @"Hi Bob"}
            options:options
         completion:^(NSError *error) {
-          if (error) {
-              NSLog(@"Push error: %@", error);
-          }
+            if (error) {
+                NSLog(@"Push error: %@", error);
+            }
         }];
 ```
 
-For `targeted` and `secure` channels, exactly one recipient must be provided.
+For targeted and secure channels, exactly one recipient should be provided.
+
+---
 
 ## Receiving Messages
-
-Listen to a specific event:
 
 ```objc
 [subscription.emitter on:@"message" handler:^(id data) {
@@ -279,6 +307,8 @@ if ([subscription isKindOfClass:[Subscription class]]) {
 }
 ```
 
+---
+
 ## Presence
 
 ```objc
@@ -286,15 +316,15 @@ __block PresenceUnsubscribe stopPresence = nil;
 
 [subscription fetchPresence:YES
                    callback:^(NSArray<NSString *> *users) {
-                     NSLog(@"Online: %@", users);
+                       NSLog(@"Online: %@", users);
                    }
                  completion:^(PresenceUnsubscribe unsubscribe, NSError *error) {
-                   if (error) {
-                       NSLog(@"Presence error: %@", error);
-                       return;
-                   }
+                     if (error) {
+                         NSLog(@"Presence error: %@", error);
+                         return;
+                     }
 
-                   stopPresence = unsubscribe;
+                     stopPresence = unsubscribe;
                  }];
 
 // later
@@ -307,6 +337,8 @@ if (stopPresence) {
 
 Pass `YES` to receive unique usernames, or `NO` to receive the raw presence list.
 
+---
+
 ## Encrypted Channels
 
 ```objc
@@ -318,57 +350,59 @@ Pass `YES` to receive unique usernames, or `NO` to receive the raw presence list
 
     [adk subscribe:@"SECURE_CHANNEL"
         completion:^(BaseSubscription *subscription, NSError *subError) {
-          if (subError || !subscription) {
-              NSLog(@"Secure subscribe error: %@", subError);
-              return;
-          }
+            if (subError || !subscription) {
+                NSLog(@"Secure subscribe error: %@", subError);
+                return;
+            }
 
-          PushConfig *options = [[PushConfig alloc] initWithTo:@[@"bob"]];
+            PushConfig *options = [[PushConfig alloc] initWithTo:@[@"bob"]];
 
-          [subscription push:@"message"
-                        data:@{@"text": @"Private"}
-                     options:options
-                  completion:^(NSError *pushError) {
-                    if (pushError) {
-                        NSLog(@"Secure push error: %@", pushError);
-                    }
-                  }];
+            [subscription push:@"message"
+                          data:@{@"text": @"Private"}
+                       options:options
+                    completion:^(NSError *pushError) {
+                        if (pushError) {
+                            NSLog(@"Secure push error: %@", pushError);
+                        }
+                    }];
 
-          [subscription.emitter on:@"message" handler:^(id data) {
-              NSLog(@"Decrypted: %@", data);
-          }];
+            [subscription.emitter on:@"message" handler:^(id data) {
+                NSLog(@"Decrypted: %@", data);
+            }];
         }];
 }];
 ```
+
+---
 
 ## Shared Object Channels (CRDT)
 
 ```objc
 [adk subscribe:@"CRDT_CHANNEL"
     completion:^(BaseSubscription *subscription, NSError *error) {
-      if (error || ![subscription isKindOfClass:[LiveObjSubscription class]]) {
-          NSLog(@"CRDT subscribe error: %@", error);
-          return;
-      }
+        if (error || ![subscription isKindOfClass:[LiveObjSubscription class]]) {
+            NSLog(@"CRDT subscribe error: %@", error);
+            return;
+        }
 
-      LiveObjSubscription *live = (LiveObjSubscription *)subscription;
+        LiveObjSubscription *live = (LiveObjSubscription *)subscription;
 
-      // Write
-      CRDTProxy *document = [[live state] objectForKeyedSubscript:@"document"];
-      [[document objectForKeyedSubscript:@"title"] set:@"My Doc"];
-      [live flush:^{}];
+        // Write
+        CRDTProxy *document = [[live state] objectForKeyedSubscript:@"document"];
+        [[document objectForKeyedSubscript:@"title"] set:@"My Doc"];
+        [live flush:^{}];
 
-      // Read
-      [[live query:@"document"] executeWithCompletion:^(id result) {
-          NSLog(@"Snapshot: %@", result);
-      }];
+        // Read
+        [[live query:@"document"] executeWithCompletion:^(id result) {
+            NSLog(@"Snapshot: %@", result);
+        }];
 
-      // Listen
-      void (^dispose)(void) = [[live query:@"document"] listenWithCallback:^(id value) {
-          NSLog(@"Updated: %@", value);
-      }];
+        // Listen
+        void (^dispose)(void) = [[live query:@"document"] listenWithCallback:^(id value) {
+            NSLog(@"Updated: %@", value);
+        }];
 
-      dispose();
+        dispose();
     }];
 ```
 
@@ -381,31 +415,35 @@ CRDTProxy *items = [[live state] objectForKeyedSubscript:@"items"];
 [items unshiftItem:@"zero"];
 [items pop];
 [items removeAtIndex:2];
-[items spliceStart:1 deleteCount:1 insertItems:@[@"x"]];
+[items spliceStart:1 deleteCount:1 insertItems:@[@"x" ]];
 
 [items flushWithCompletion:^{}];
 ```
+
+---
 
 ## Interceptors
 
 ```objc
 [adk intercept:@"filter"
              fn:^(NSDictionary *request, InterceptorResolve resolve, InterceptorReject reject) {
-               NSString *text = [request[@"text"] isKindOfClass:[NSString class]] ? request[@"text"] : @"";
+                 NSString *text = [request[@"text"] isKindOfClass:[NSString class]] ? request[@"text"] : @"";
 
-               if ([text containsString:@"anyword"]) {
-                   reject(@"Blocked");
-                   return;
-               }
+                 if ([text containsString:@"anyword"]) {
+                     reject(@"Blocked");
+                     return;
+                 }
 
-               resolve(request);
+                 resolve(request);
              }
      completion:^(Interception *interception, NSError *error) {
-       if (error) {
-           NSLog(@"Interceptor error: %@", error);
-       }
+         if (error) {
+             NSLog(@"Interceptor error: %@", error);
+         }
      }];
 ```
+
+---
 
 ## Connection Lifecycle
 
@@ -427,10 +465,111 @@ CRDTProxy *items = [[live state] objectForKeyedSubscript:@"items"];
 }];
 ```
 
+---
+
+## Agent Lab
+
+ART ADK provides two AI integrations:
+
+- Agent — interact with a single AI agent.
+- Orchestrator — execute multi-agent workflows coordinated by an orchestrator.
+
+### Agent
+
+Connect to an Agent Builder agent and start a conversation.
+
+```objc
+Agent *agent = [adk agent:@"YOUR_AGENT_ID"];
+AgentThread *thread = [agent thread];
+
+[thread listen:^(AgentEventEnvelope *envelope) {
+    NSLog(@"Envelope: %@", envelope);
+}];
+
+[thread run:@"Plan a 3-day trip to Dubai"
+     replyId:nil
+  completion:^(Run *run, NSError *error) {
+      if (error || !run) {
+          NSLog(@"Run error: %@", error);
+          return;
+      }
+
+      [run done:^(AgentOutput *output, AgentError *agentError) {
+          if (agentError) {
+              NSLog(@"Agent error: %@", agentError);
+              return;
+          }
+
+          NSLog(@"Output: %@", output);
+      }];
+  }];
+```
+
+### Human-in-the-Loop (HITL)
+
+When an agent requires additional information, register a feedback handler before starting the run.
+
+```objc
+[thread feedbackRequest:^(HumanInputRequest *request, Run *run) {
+    [run sendFeedback:@"Budget 50,000 travelling in December"
+           completion:^(NSError *error) {
+               if (error) {
+                   NSLog(@"Feedback error: %@", error);
+               }
+           }];
+}];
+```
+
+### Orchestrator
+
+Connect to an Orchestrator Builder workflow.
+
+```objc
+Orchestrator *orchestrator = [adk orchestrator:@"YOUR_ORCHESTRATOR_ID"];
+
+[orchestrator thread:^(OrchestratorThread *thread, NSError *error) {
+    if (error || !thread) {
+        NSLog(@"Thread error: %@", error);
+        return;
+    }
+
+    [thread listen:^(NSDictionary<NSString *, id> *message) {
+        NSLog(@"Event: %@", message);
+    }];
+
+    [thread push:@"user_input"
+            data:@{@"message": @"Plan a 3-day trip to Goa"}
+      completion:^(NSError *pushError) {
+          if (pushError) {
+              NSLog(@"Push error: %@", pushError);
+          }
+      }];
+}];
+```
+
+---
+
 ## Documentation
 
 Full documentation is available at:
 [https://docs.arealtimetech.com/docs/adk/](https://docs.arealtimetech.com/docs/adk/)
 
-For API details, see the public umbrella header:
-[`Sources/ADK/include/ADK.h`](Sources/ADK/include/ADK.h)
+| Topic | Link |
+| --- | --- |
+| Overview | [ADK Overview](https://docs.arealtimetech.com/docs/adk/) |
+| Installation | [Objective-C Installation](https://docs.arealtimetech.com/docs/adk/objc/installation) |
+| Publish & Subscribe | [Pub/Sub Docs](https://docs.arealtimetech.com/docs/adk/objc/pub-sub) |
+| Connection Management | [Connection Docs](https://docs.arealtimetech.com/docs/adk/objc/connection-management) |
+| User Presence | [Presence Docs](https://docs.arealtimetech.com/docs/adk/objc/user-presence) |
+| Encrypted Channels | [Encryption Docs](https://docs.arealtimetech.com/docs/adk/objc/encrypted-channel) |
+| Shared Object Channels | [Shared Object Docs](https://docs.arealtimetech.com/docs/adk/objc/shared-object-channel) |
+| Interceptors | [Interceptor Docs](https://docs.arealtimetech.com/docs/adk/objc/intercept-channel) |
+| Agents | [Agent Docs](https://docs.arealtimetech.com/docs/adk/objc/agent) |
+| Orchestrator | [Orchestrator Docs](https://docs.arealtimetech.com/docs/adk/objc/orchestrator) |
+
+
+---
+
+## License
+
+Released under the [MIT License](https://github.com/aiotrixdev/art-objectivec-adk/blob/main/LICENSE).

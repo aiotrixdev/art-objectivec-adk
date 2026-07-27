@@ -43,4 +43,13 @@
 #import <ArtAdk/WebSocket/Socket.h>
 #import <ArtAdk/WebSocket/Adk.h>
 
+// Agentic
+#import <ArtAdk/Agentic/AgentEvents.h>
+#import <ArtAdk/Agentic/BaseWorkflow.h>
+#import <ArtAdk/Agentic/Agent.h>
+#import <ArtAdk/Agentic/AgentThread.h>
+#import <ArtAdk/Agentic/Run.h>
+#import <ArtAdk/Agentic/Orchestrator.h>
+#import <ArtAdk/Agentic/OrchestratorThread.h>
+
 #endif /* ADK_h */

@@ -28,6 +28,7 @@ Pod::Spec.new do |spec|
     'GCC_C_LANGUAGE_STANDARD' => 'gnu17',
     'HEADER_SEARCH_PATHS' => [
       '$(inherited)',
+      '"${PODS_TARGET_SRCROOT}/Sources/ADK/Agentic"',
       '"${PODS_TARGET_SRCROOT}/Sources/ADK/Auth"',
       '"${PODS_TARGET_SRCROOT}/Sources/ADK/Config"',
       '"${PODS_TARGET_SRCROOT}/Sources/ADK/CRDT"',
