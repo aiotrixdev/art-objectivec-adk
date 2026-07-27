@@ -47,6 +47,15 @@
     return self;
 }
 
+- (instancetype)initWithTo:(NSArray<NSString *> *)to
+                  threadID:(NSString *)threadID {
+    self = [self initWithTo:to];
+    if (self) {
+        _threadID = [threadID copy];
+    }
+    return self;
+}
+
 @end
 
 @implementation CallApiProps

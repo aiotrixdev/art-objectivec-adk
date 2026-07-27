@@ -1,10 +1,15 @@
+#ifndef ARTADK_WEBSOCKET_HELPERFUNCTIONS_H
+#define ARTADK_WEBSOCKET_HELPERFUNCTIONS_H
+
+#pragma once
+
 //
 //  HelperFunctions.h
 //  ADK
 //
 
-#import "../Types/ChannelTypes.h"
-#import "../Types/SocketTypes.h"
+#import <ArtAdk/Types/ChannelTypes.h>
+#import <ArtAdk/Types/SocketTypes.h>
 #import <Foundation/Foundation.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -34,3 +39,5 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif /* ARTADK_WEBSOCKET_HELPERFUNCTIONS_H */

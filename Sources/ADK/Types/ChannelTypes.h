@@ -1,3 +1,8 @@
+#ifndef ARTADK_TYPES_CHANNELTYPES_H
+#define ARTADK_TYPES_CHANNELTYPES_H
+
+#pragma once
+
 //
 //  ChannelTypes.h
 //  ADK
@@ -15,6 +20,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, strong) NSArray<NSString *> *presenceUsers;
 @property(nonatomic, strong, nullable) id snapshot;
 @property(nonatomic, copy, nullable) NSString *subscriptionID;
+/// Whether this channel is orchestrator-enabled. Gates the generic
+/// `-[Subscription thread]` accessor; `Orchestrator` bypasses it via
+/// `threadUnchecked`. Defaults to NO. Mirrors the Swift/Flutter
+/// `ChannelConfig.orchestratorEnabled`.
+@property(nonatomic, assign) BOOL orchestratorEnabled;
 
 - (instancetype)initWithChannelName:(NSString *)channelName;
 - (instancetype)initWithChannelName:(NSString *)channelName
@@ -29,3 +39,5 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif /* ARTADK_TYPES_CHANNELTYPES_H */
