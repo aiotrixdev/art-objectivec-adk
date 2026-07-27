@@ -15,7 +15,7 @@ Pod::Spec.new do |spec|
 
   # 1. Platforms (Mapped from .iOS(.v15) and .macOS(.v10_15))
   spec.ios.deployment_target = "15.0"
-  spec.osx.deployment_target = "10.15"
+  spec.osx.deployment_target = "12.00"
 
   # 2. Source and Headers (Mapped from path: "Sources/ADK" and publicHeadersPath: "include")
   # This grabs all Objective-C and C files inside your ADK folder
