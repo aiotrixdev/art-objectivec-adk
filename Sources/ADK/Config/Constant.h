@@ -1,3 +1,8 @@
+#ifndef ARTADK_CONFIG_CONSTANT_H
+#define ARTADK_CONFIG_CONSTANT_H
+
+#pragma once
+
 //
 //  Constant.h
 //  ADK
@@ -18,3 +23,5 @@
 - (instancetype)init NS_UNAVAILABLE;
 
 @end
+
+#endif /* ARTADK_CONFIG_CONSTANT_H */

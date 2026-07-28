@@ -221,12 +221,23 @@ static NSLock *AuthSingletonLock(void) {
         }
     }
 
-    NSDictionary<NSString *, NSString *> *headerPayload = @{
-        @"Client-Id" : self.credentials.clientID ?: @"",
-        @"X-Org" : self.credentials.orgTitle ?: @"",
-        @"Environment" : self.credentials.environment ?: @"",
-        @"ProjectKey" : self.credentials.projectKey ?: @"",
-    };
+    NSMutableDictionary<NSString *, NSString *> *headerPayload =
+        [NSMutableDictionary dictionaryWithDictionary:@{
+            @"Client-Id" : self.credentials.clientID ?: @"",
+            @"X-Org" : self.credentials.orgTitle ?: @"",
+            @"Environment" : self.credentials.environment ?: @"",
+            @"ProjectKey" : self.credentials.projectKey ?: @"",
+        }];
+    // Mirror generateAuthToken: forward the access token (T-pass) and the
+    // config-supplied auth token (X-pass) on refresh too. Previously these
+    // were only sent on initial auth (js-adk-common parity).
+    if (self.credentials.accessToken &&
+        self.credentials.accessToken.length > 0) {
+        headerPayload[@"T-pass"] = self.credentials.accessToken;
+    }
+    if (self.credentials.config.authToken) {
+        headerPayload[@"X-pass"] = self.credentials.config.authToken;
+    }
 
     NSString *urlString =
         [NSString stringWithFormat:@"%@/auth/token/refresh", Constant.BASE_URL];

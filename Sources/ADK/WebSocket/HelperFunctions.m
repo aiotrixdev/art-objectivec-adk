@@ -5,6 +5,7 @@
 
 #import "HelperFunctions.h"
 #import "Utils.h"
+#import "AuthTypes.h"
 
 @implementation HelperFunctions
 

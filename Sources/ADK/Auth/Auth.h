@@ -1,3 +1,8 @@
+#ifndef ARTADK_AUTH_AUTH_H
+#define ARTADK_AUTH_AUTH_H
+
+#pragma once
+
 //
 //  Auth.h
 //  ADK
@@ -29,3 +34,5 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif /* ARTADK_AUTH_AUTH_H */

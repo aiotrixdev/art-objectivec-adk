@@ -1,3 +1,8 @@
+#ifndef ARTADK_CRDT_CRDTTYPES_H
+#define ARTADK_CRDT_CRDTTYPES_H
+
+#pragma once
+
 //
 //  CRDTTypes.h
 //  ADK
@@ -168,3 +173,5 @@ typedef NS_ENUM(NSInteger, CRDTOperationType) {
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif /* ARTADK_CRDT_CRDTTYPES_H */

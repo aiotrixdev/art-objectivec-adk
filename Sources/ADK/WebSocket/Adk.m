@@ -4,6 +4,8 @@
 //
 
 #import "Adk.h"
+#import "Agent.h"
+#import "Orchestrator.h"
 #import "Auth.h"
 #import "AuthTypes.h"
 #import "BaseSubscription.h"
@@ -33,6 +35,10 @@
 // Flags
 @property(nonatomic, assign) BOOL isPaused;
 @property(nonatomic, assign) BOOL isConnectable;
+// Set once the server reports a billing / concurrency limit. Latches
+// auto-reconnection off permanently — `handleOnClose` / `handleReconnection`
+// early-return while this is YES. Mirrors js-adk-common `adk.ts`.
+@property(nonatomic, assign) BOOL isLimitExceeded;
 
 // Reconnect dispatch work item
 @property(nonatomic, strong, nullable) dispatch_block_t reconnectWorkItem;
@@ -40,6 +46,11 @@
 // Event listener identifiers
 @property(nonatomic, strong) NSUUID *connectionListenerId;
 @property(nonatomic, strong) NSUUID *closeListenerId;
+
+// Agentic reconnect hooks
+@property(nonatomic, strong)
+    NSMutableDictionary<NSUUID *, void (^)(void)> *reconnectedHandlers;
+@property(nonatomic, assign) BOOL hasConnectedOnce;
 
 @end
 
@@ -56,6 +67,9 @@
         _maxDelay = 5000;       // 5 seconds
         _isPaused = NO;
         _isConnectable = NO;
+        _isLimitExceeded = NO;
+        _reconnectedHandlers = [NSMutableDictionary dictionary];
+        _hasConnectedOnce = NO;
 
         // Normalise the URI: strip any scheme the caller may have
         // included ("https://", "http://", "wss://", "ws://") so the
@@ -146,6 +160,30 @@
                                      return;
                                  [strongSelf handleOnClose];
                                }];
+
+        [_socket on:@"limitExceeded"
+              handler:^(id data) {
+                typeof(self) strongSelf = weakSelf;
+                if (!strongSelf)
+                    return;
+                NSDictionary *info = [data isKindOfClass:[NSDictionary class]]
+                                         ? (NSDictionary *)data
+                                         : @{};
+                NSString *code = info[@"code"] ?: @"";
+                NSString *errText = info[@"error"] ?: @"";
+                if ([code isEqualToString:@"CONCURRENT_LIMIT_EXCEEDED"]) {
+                    NSLog(@"[ART] Concurrent connection limit reached: %@. All "
+                          @"reconnection attempts stopped. Call connect() again "
+                          @"to retry.",
+                          errText);
+                } else {
+                    NSLog(@"[ART] Billing limit reached: %@. All reconnection "
+                          @"attempts permanently stopped.",
+                          errText);
+                }
+                strongSelf.isLimitExceeded = YES;
+                strongSelf.isConnectable = NO;
+              }];
     }
     return self;
 }
@@ -303,9 +341,23 @@
     self.reconnectAttempts = 0;
     self.reconnectDelay = 3000;
     [self onConnectedHook:connection];
+
+    // Fire onReconnected handlers on every connect after the first, so agentic
+    // threads can re-attach their listeners after a transport bounce.
+    if (self.hasConnectedOnce) {
+        NSArray<void (^)(void)> *handlers =
+            [self.reconnectedHandlers.allValues copy];
+        for (void (^handler)(void) in handlers) {
+            handler();
+        }
+    } else {
+        self.hasConnectedOnce = YES;
+    }
 }
 
 - (void)handleOnClose {
+    if (self.isLimitExceeded) // billing / concurrency limit — never auto-reconnect
+        return;
     if (!self.isConnectable)
         return;
     self.socket.isReConnecting = YES;
@@ -313,6 +365,8 @@
 }
 
 - (void)handleReconnection {
+    if (self.isLimitExceeded) // billing / concurrency limit — never auto-reconnect
+        return;
     if (self.reconnectWorkItem) {
         dispatch_block_cancel(self.reconnectWorkItem);
         self.reconnectWorkItem = nil;
@@ -367,6 +421,29 @@
        completion:(void (^)(BaseSubscription *_Nullable,
                             NSError *_Nullable))completion {
     [self.socket subscribe:channel completion:completion];
+}
+
+#pragma mark - Agentic
+
+- (Agent *)agent:(NSString *)agentId {
+    return [[Agent alloc] initWithAgentId:agentId socket:self.socket];
+}
+
+- (Orchestrator *)orchestrator:(NSString *)orchestratorId {
+    return [[Orchestrator alloc] initWithOrchestratorId:orchestratorId
+                                                 socket:self.socket];
+}
+
+- (NSUUID *)onReconnected:(void (^)(void))handler {
+    NSUUID *identifier = [NSUUID UUID];
+    self.reconnectedHandlers[identifier] = [handler copy];
+    return identifier;
+}
+
+- (void)offReconnected:(NSUUID *)identifier {
+    if (identifier) {
+        [self.reconnectedHandlers removeObjectForKey:identifier];
+    }
 }
 
 - (void)intercept:(NSString *)interceptor

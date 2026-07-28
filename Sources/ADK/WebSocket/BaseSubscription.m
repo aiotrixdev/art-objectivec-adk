@@ -23,6 +23,13 @@
 @property(nonatomic, strong) NSLock *pendingAcksLock;
 @property(nonatomic, assign) NSInteger messageCount;
 
+- (void)sendPushMessage:(ConnectionDetail *)connection
+                  event:(NSString *)event
+                     to:(NSArray<NSString *> *)to
+               threadID:(nullable NSString *)threadID
+             contentStr:(NSString *)contentStr
+             completion:(void (^)(NSError *_Nullable))completion;
+
 @end
 
 @implementation BaseSubscription
@@ -370,6 +377,7 @@
       }
 
       NSArray<NSString *> *to = options.to ?: @[];
+      NSString *threadID = options.threadID;
 
       NSError *jsonError = nil;
       NSData *jsonData = [NSJSONSerialization dataWithJSONObject:data
@@ -460,6 +468,7 @@
                                      [self2 sendPushMessage:connection
                                                       event:event
                                                          to:to
+                                                   threadID:threadID
                                                  contentStr:encrypted
                                                  completion:completion];
                                    }];
@@ -469,6 +478,7 @@
           [strongSelf sendPushMessage:connection
                                 event:event
                                    to:to
+                             threadID:threadID
                            contentStr:messageStr
                            completion:completion];
       }
@@ -478,6 +488,7 @@
 - (void)sendPushMessage:(ConnectionDetail *)connection
                   event:(NSString *)event
                      to:(NSArray<NSString *> *)to
+               threadID:(nullable NSString *)threadID
              contentStr:(NSString *)contentStr
              completion:(void (^)(NSError *_Nullable))completion {
 
@@ -504,6 +515,9 @@
     message[@"channel"] = channelFull;
     message[@"event"] = event;
     message[@"content"] = contentStr;
+    if (threadID.length > 0) {
+        message[@"thread_id"] = threadID;
+    }
     if (refId) {
         message[@"ref_id"] = refId;
     }
