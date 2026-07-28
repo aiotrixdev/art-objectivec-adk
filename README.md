@@ -32,7 +32,7 @@ Objective-C SDK for **[ART – A Realtime Tech Communication](https://arealtimet
 dependencies: [
     .package(
         url: "https://github.com/aiotrixdev/art-objectivec-adk.git",
-        from: "1.0.1"
+        from: "1.0.2"
     )
 ]
 ```
@@ -42,13 +42,13 @@ dependencies: [
 Add the dependency to your Podfile:
 
 ```ruby
-pod 'ArtAdk', '~> 1.0.0'
+pod 'ArtAdk', '~> 1.0.2'
 ```
 
 Then run:
 
 ```bash
-pod install
+pod instal
 ```
 
 You can also add the package directly in Xcode via:
