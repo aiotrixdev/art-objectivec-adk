@@ -1,6 +1,6 @@
 Pod::Spec.new do |spec|
   spec.name         = "ArtAdk"
-  spec.version      = "1.0.1" 
+  spec.version      = "1.0.2" 
   spec.summary      = "Objective-C ADK for ART - A Realtime Tech Communication."  
   spec.description  = <<-DESC
                     Objective-C ADK for ART, a realtime messaging platform providing WebSocket-based channels, 
