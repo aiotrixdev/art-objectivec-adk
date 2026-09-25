@@ -1,0 +1,13 @@
+// The ArtAdk module for Swift Package Manager: everything ArtAdk.h
+// imports. The internal headers sit next to their sources in this folder
+// but aren't part of the module.
+module ArtAdk {
+    umbrella header "ArtAdk/ArtAdk.h"
+
+    exclude header "ArtAdk/Agentic/ARTThreadStateStore.h"
+    exclude header "ArtAdk/Crypto/TweetNaCl/ctweetnacl.h"
+    exclude header "ArtAdk/WebSocket/ARTEventBuffer.h"
+    exclude header "ArtAdk/WebSocket/BaseSubscription+Internal.h"
+
+    export *
+}
