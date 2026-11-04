@@ -28,6 +28,13 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, copy, nullable) NSString *root;
 /// Load credentials from `adk-services.json` on `connect`. Defaults to NO.
 @property(nonatomic, assign) BOOL autoLoadCredsFromJSON;
+/// Longest wait, in milliseconds, for the connection to become ready, for an
+/// authentication request, and for a reply to a control request such as a
+/// subscribe. Defaults to 30 000 and must be positive.
+///
+/// This bounds connection set-up only; it is not a limit on how long an
+/// execution may run.
+@property(nonatomic, assign) NSInteger connectionTimeoutMs;
 
 - (instancetype)initWithUri:(NSString *)uri;
 - (instancetype)initWithUri:(NSString *)uri

@@ -4,8 +4,17 @@
 //
 
 #import "HelperFunctions.h"
+#import "ARTSupport.h"
 #import "Utils.h"
 #import "AuthTypes.h"
+
+/// The server's `error` text, else `fallback`.
+static NSString *ARTRejection(NSDictionary *data, NSString *fallback) {
+    id error = data[@"error"];
+    return ([error isKindOfClass:[NSString class]] && [(NSString *)error length] > 0)
+               ? error
+               : fallback;
+}
 
 @implementation HelperFunctions
 
@@ -14,8 +23,16 @@
           websocketHandler:(id<WebsocketHandler>)handler
                 completion:(void (^)(ChannelConfig *_Nullable,
                                      NSError *_Nullable))completion {
+    if (!handler) {
+        completion(nil, MakeError(ErrorCodeNotConnected, @"Not connected"));
+        return;
+    }
 
-    [handler wait:^{
+    [handler wait:^(NSError *_Nullable waitError) {
+      if (waitError) {
+          completion(nil, waitError);
+          return;
+      }
       NSString *subscriptionChannelName = [process isEqualToString:@"subscribe"]
                                               ? @"channel-subscribe"
                                               : @"channel-presence";
@@ -53,10 +70,11 @@
                    NSString *status = data[@"status"];
                    if ([status isKindOfClass:[NSString class]] &&
                        [status isEqualToString:@"not-OK"]) {
-                       NSString *errMsg = data[@"error"];
-                       if (![errMsg isKindOfClass:[NSString class]])
-                           errMsg = @"Unknown error";
-                       completion(nil, MakeError(ErrorCodeServerError, errMsg));
+                       completion(
+                           nil,
+                           MakeError(ErrorCodeServerError,
+                                     ARTRejection(data, @"The channel subscription "
+                                                        @"was rejected.")));
                        return;
                    }
 
@@ -101,6 +119,8 @@
                    config.orchestratorEnabled =
                        [orchestrator isKindOfClass:[NSNumber class]] &&
                        [(NSNumber *)orchestrator boolValue];
+                   config.configurationID =
+                       [ARTJSON stringValue:data[@"configurationID"]];
                    completion(config, nil);
                  }];
     }];
@@ -111,8 +131,16 @@
                        process:(NSString *)process
               websocketHandler:(id<WebsocketHandler>)handler
                     completion:(void (^)(BOOL, NSError *_Nullable))completion {
+    if (!handler) {
+        completion(NO, MakeError(ErrorCodeNotConnected, @"Not connected"));
+        return;
+    }
 
-    [handler wait:^{
+    [handler wait:^(NSError *_Nullable waitError) {
+      if (waitError) {
+          completion(NO, waitError);
+          return;
+      }
       NSString *channelName = [process isEqualToString:@"subscribe"]
                                   ? @"channel-unsubscribe"
                                   : @"presence-unsubscribe";
@@ -150,10 +178,10 @@
                    NSString *status = data[@"status"];
                    if ([status isKindOfClass:[NSString class]] &&
                        [status isEqualToString:@"not-OK"]) {
-                       NSString *errMsg = data[@"error"];
-                       if (![errMsg isKindOfClass:[NSString class]])
-                           errMsg = @"Unknown error";
-                       completion(NO, MakeError(ErrorCodeServerError, errMsg));
+                       completion(NO,
+                                  MakeError(ErrorCodeServerError,
+                                            ARTRejection(data, @"The channel request "
+                                                               @"was rejected.")));
                        return;
                    }
 
@@ -166,8 +194,16 @@
             websocketHandler:(id<WebsocketHandler>)handler
                   completion:
                       (void (^)(id _Nullable, NSError *_Nullable))completion {
+    if (!handler) {
+        completion(nil, MakeError(ErrorCodeNotConnected, @"Not connected"));
+        return;
+    }
 
-    [handler wait:^{
+    [handler wait:^(NSError *_Nullable waitError) {
+      if (waitError) {
+          completion(nil, waitError);
+          return;
+      }
       [handler
           pushForSecureLine:@"interceptor-subscribe"
                        data:@{@"interceptor" : interceptor}
@@ -198,10 +234,11 @@
                    NSString *status = data[@"status"];
                    if ([status isKindOfClass:[NSString class]] &&
                        [status isEqualToString:@"not-OK"]) {
-                       NSString *errMsg = data[@"error"];
-                       if (![errMsg isKindOfClass:[NSString class]])
-                           errMsg = @"Unknown error";
-                       completion(nil, MakeError(ErrorCodeServerError, errMsg));
+                       completion(
+                           nil,
+                           MakeError(ErrorCodeServerError,
+                                     ARTRejection(data, @"The interceptor subscription "
+                                                        @"was rejected.")));
                        return;
                    }
 

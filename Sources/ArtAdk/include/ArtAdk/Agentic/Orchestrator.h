@@ -25,11 +25,19 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface Orchestrator : BaseWorkflow
 
-/// The server-side identifier (channel is `orch_com_<orchestratorId>`).
+/// The orchestrator's slug, optionally with `@buildname` (channel is
+/// `orch_com_<orchestratorId>`).
 @property(nonatomic, copy, readonly) NSString *orchestratorId;
 
-- (instancetype)initWithOrchestratorId:(NSString *)orchestratorId
-                                socket:(Socket *)socket;
+/// Creates an Orchestrator bound to `socket`.
+///
+/// `orchestratorId` is the orchestrator's slug, optionally pinned to a named
+/// build (`my-flow@release2`). Returns nil and sets `error`
+/// (`ErrorCodeInvalidArgument`) for anything else; see
+/// `ARTValidateExecutionReference`.
+- (nullable instancetype)initWithOrchestratorId:(NSString *)orchestratorId
+                                         socket:(Socket *)socket
+                                          error:(NSError **)error;
 
 /// Opens (or reuses) an OrchestratorThread, awaiting the lazy subscription on
 /// first call. Bypasses the orchestratorEnabled gate.
@@ -43,8 +51,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark - Storage (orchestrator-scoped)
 
-/// Uploads a local file scoped to this orchestrator: `configId` is always the
-/// orchestrator id, whatever `options` contains.
+/// Uploads a local file owned by this orchestrator's channel configuration,
+/// whatever `options.configId` contains. `options.threadId` is required;
+/// `-[OrchestratorThread uploadFileURL:options:completion:]` sets it.
 - (void)uploadFileURL:(NSURL *)fileURL
               options:(nullable ARTUploadOptions *)options
            completion:(void (^)(ARTFileRef *_Nullable fileRef,
@@ -58,7 +67,9 @@ NS_ASSUME_NONNULL_BEGIN
         completion:(void (^)(ARTFileRef *_Nullable fileRef,
                              NSError *_Nullable error))completion;
 
-/// Lists files scoped to this orchestrator.
+/// Lists the files this orchestrator's channel configuration can access in
+/// `options.threadId` (required;
+/// `-[OrchestratorThread listFilesWithOptions:completion:]` sets it).
 - (void)listFilesWithOptions:(nullable ARTListOptions *)options
                   completion:(void (^)(ARTStorageFileList *_Nullable list,
                                        NSError *_Nullable error))completion;

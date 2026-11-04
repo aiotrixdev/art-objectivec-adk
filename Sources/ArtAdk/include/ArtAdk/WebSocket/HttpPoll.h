@@ -13,6 +13,13 @@
 #import <ArtAdk/Types/SocketTypes.h>
 NS_ASSUME_NONNULL_BEGIN
 
+/// HTTP long-poll transport used when the WebSocket connection is
+/// unavailable.
+///
+/// A failed poll is reported to `onError`, as an `ARTAuthHttpError` for an
+/// HTTP error. The loop stops when the server rejects the credentials (HTTP
+/// 401 or 403), whether while `getAuthHeaders` gets a token or on the poll
+/// itself.
 @interface LongPollClient : NSObject
 
 @property (nonatomic, assign, readonly) BOOL isRunning;

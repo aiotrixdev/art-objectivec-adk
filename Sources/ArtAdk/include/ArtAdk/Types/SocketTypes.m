@@ -4,6 +4,80 @@
 //
 
 #import "SocketTypes.h"
+#import "ARTSupport.h"
+
+NSErrorDomain const ARTConnectionErrorDomain = @"com.art.adk.connection";
+NSErrorUserInfoKey const ARTConnectionErrorCodeKey = @"ARTConnectionErrorCode";
+
+ARTConnectionErrorCode const ARTConnectionErrorCodeTimeout = @"CONNECTION_TIMEOUT";
+ARTConnectionErrorCode const ARTConnectionErrorCodeLost = @"CONNECTION_LOST";
+ARTConnectionErrorCode const ARTConnectionErrorCodePaused = @"CONNECTION_PAUSED";
+ARTConnectionErrorCode const ARTConnectionErrorCodeClosed = @"CONNECTION_CLOSED";
+ARTConnectionErrorCode const ARTConnectionErrorCodeCancelled = @"CONNECTION_CANCELLED";
+ARTConnectionErrorCode const ARTConnectionErrorCodeAuthorizationFailed =
+    @"CONNECTION_AUTHORIZATION_FAILED";
+ARTConnectionErrorCode const ARTConnectionErrorCodeAuthenticationFailed =
+    @"AUTHENTICATION_FAILED";
+ARTConnectionErrorCode const ARTConnectionErrorCodeAckTimeout = @"ACK_TIMEOUT";
+ARTConnectionErrorCode const ARTConnectionErrorCodeMinutesLimitExceeded =
+    @"CONNECTION_MINUTES_LIMIT_EXCEEDED";
+ARTConnectionErrorCode const ARTConnectionErrorCodeConcurrentLimitExceeded =
+    @"CONCURRENT_LIMIT_EXCEEDED";
+
+ARTExecutionOrigin const ARTExecutionOriginPlayground = @"playground";
+
+@implementation ARTConnectionError
+
++ (instancetype)errorWithMessage:(NSString *)message
+                            code:(ARTConnectionErrorCode)code
+                          status:(NSNumber *)status {
+    NSMutableDictionary *userInfo = [NSMutableDictionary dictionary];
+    userInfo[NSLocalizedDescriptionKey] = message ?: @"";
+    userInfo[ARTConnectionErrorCodeKey] = code ?: @"";
+    if (status) {
+        userInfo[ARTHTTPStatusCodeKey] = status;
+    }
+    return [self errorWithDomain:ARTConnectionErrorDomain code:1 userInfo:userInfo];
+}
+
++ (instancetype)errorWithMessage:(NSString *)message code:(ARTConnectionErrorCode)code {
+    return [self errorWithMessage:message code:code status:nil];
+}
+
+- (ARTConnectionErrorCode)connectionCode {
+    return self.userInfo[ARTConnectionErrorCodeKey] ?: @"";
+}
+
+- (NSString *)message {
+    return self.userInfo[NSLocalizedDescriptionKey] ?: @"";
+}
+
+- (NSNumber *)status {
+    return self.userInfo[ARTHTTPStatusCodeKey];
+}
+
+- (NSString *)description {
+    if (self.status) {
+        return [NSString stringWithFormat:@"%@ (%@): %@", self.connectionCode,
+                                          self.status, self.message];
+    }
+    return [NSString stringWithFormat:@"%@: %@", self.connectionCode, self.message];
+}
+
+@end
+
+@implementation ARTAuthenticationFailedDetail
+
+- (instancetype)initWithStatus:(NSInteger)status error:(NSString *)error {
+    self = [super init];
+    if (self) {
+        _status = status;
+        _error = [error copy] ?: @"";
+    }
+    return self;
+}
+
+@end
 
 @implementation ConnectionDetail
 
@@ -55,23 +129,32 @@
 
 - (instancetype)initWithTo:(NSArray<NSString *> *)to
                   threadID:(NSString *)threadID
-                  fileMeta:(NSArray<ARTFileMeta *> *)fileMeta {
+                  fileMeta:(NSArray<ARTMediaRef *> *)fileMeta {
+    return [self initWithTo:to threadID:threadID fileMeta:fileMeta executionOrigin:nil];
+}
+
+- (instancetype)initWithTo:(NSArray<NSString *> *)to
+                  threadID:(NSString *)threadID
+                  fileMeta:(NSArray<ARTMediaRef *> *)fileMeta
+           executionOrigin:(ARTExecutionOrigin)executionOrigin {
     self = [self initWithTo:to];
     if (self) {
         _threadID = [threadID copy];
         _fileMeta = [fileMeta copy] ?: @[];
+        _executionOrigin = [executionOrigin copy];
     }
     return self;
 }
 
-- (void)setFileMeta:(NSArray<ARTFileMeta *> *)fileMeta {
+- (void)setFileMeta:(NSArray<ARTMediaRef *> *)fileMeta {
     _fileMeta = [fileMeta copy] ?: @[];
 }
 
 - (id)copyWithZone:(NSZone *)zone {
     return [[PushConfig allocWithZone:zone] initWithTo:self.to
                                               threadID:self.threadID
-                                              fileMeta:self.fileMeta];
+                                              fileMeta:self.fileMeta
+                                       executionOrigin:self.executionOrigin];
 }
 
 @end
@@ -111,6 +194,42 @@
     if (self) {
         _baseUrl = [baseUrl copy];
         _timeoutMs = timeoutMs;
+    }
+    return self;
+}
+
+@end
+
+@implementation ARTFormDataFile
+
+- (instancetype)initWithField:(NSString *)field
+                         data:(NSData *)data
+                     filename:(NSString *)filename
+                  contentType:(NSString *)contentType {
+    self = [super init];
+    if (self) {
+        _field = [field copy];
+        _data = [data copy];
+        _filename = [filename copy];
+        _contentType = [contentType copy];
+    }
+    return self;
+}
+
+@end
+
+@implementation ARTFormDataPayload
+
+- (instancetype)init {
+    return [self initWithFields:nil files:nil];
+}
+
+- (instancetype)initWithFields:(NSDictionary<NSString *, NSString *> *)fields
+                         files:(NSArray<ARTFormDataFile *> *)files {
+    self = [super init];
+    if (self) {
+        _fields = [fields copy] ?: @{};
+        _files = [files copy] ?: @[];
     }
     return self;
 }
