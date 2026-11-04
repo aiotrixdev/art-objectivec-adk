@@ -8,6 +8,7 @@ module ArtAdk {
     exclude header "ArtAdk/Crypto/TweetNaCl/ctweetnacl.h"
     exclude header "ArtAdk/WebSocket/ARTEventBuffer.h"
     exclude header "ArtAdk/WebSocket/BaseSubscription+Internal.h"
+    exclude header "ArtAdk/WebSocket/HTTPCall+Internal.h"
 
     export *
 }

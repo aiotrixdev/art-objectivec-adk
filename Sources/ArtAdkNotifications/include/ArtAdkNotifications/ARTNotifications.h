@@ -34,6 +34,11 @@ FOUNDATION_EXPORT ARTNotificationStatus const ARTNotificationStatusUnread;
 FOUNDATION_EXPORT ARTNotificationStatus const ARTNotificationStatusRead;
 FOUNDATION_EXPORT ARTNotificationStatus const ARTNotificationStatusArchived;
 
+/// How a notification is delivered.
+typedef NSString *ARTNotificationChannel NS_TYPED_ENUM;
+FOUNDATION_EXPORT ARTNotificationChannel const ARTNotificationChannelInApp;
+FOUNDATION_EXPORT ARTNotificationChannel const ARTNotificationChannelEmail;
+
 /// A notification delivered live or listed from history.
 @interface ARTNotification : NSObject
 
@@ -91,7 +96,7 @@ FOUNDATION_EXPORT ARTNotificationStatus const ARTNotificationStatusArchived;
 @property(nonatomic, copy) NSString *body;
 @property(nonatomic, copy, nullable) NSDictionary<NSString *, id> *data;
 /// Delivery channels (sent as `notify_channels`); nil means in-app only.
-@property(nonatomic, copy, nullable) NSArray<NSString *> *channels;
+@property(nonatomic, copy, nullable) NSArray<ARTNotificationChannel> *channels;
 @property(nonatomic, copy, nullable) NSString *dedupKey;
 
 - (instancetype)initWithRecipients:(NSArray<NSString *> *)recipients
@@ -107,45 +112,6 @@ FOUNDATION_EXPORT ARTNotificationStatus const ARTNotificationStatusArchived;
 @property(nonatomic, assign, readonly) NSInteger skipped;
 - (instancetype)initWithCreated:(NSInteger)created
                         skipped:(NSInteger)skipped NS_DESIGNATED_INITIALIZER;
-- (instancetype)init NS_UNAVAILABLE;
-@end
-
-/// Push platform of a registered device.
-typedef NSString *ARTDevicePlatform NS_TYPED_EXTENSIBLE_ENUM;
-FOUNDATION_EXPORT ARTDevicePlatform const ARTDevicePlatformAndroid;
-FOUNDATION_EXPORT ARTDevicePlatform const ARTDevicePlatformIOS;
-FOUNDATION_EXPORT ARTDevicePlatform const ARTDevicePlatformWeb;
-
-/// Input for `registerDevice:completion:`.
-@interface ARTRegisterDeviceInput : NSObject
-@property(nonatomic, copy) NSString *token;
-@property(nonatomic, copy) ARTDevicePlatform platform;
-@property(nonatomic, copy, nullable) NSString *username;
-- (instancetype)initWithToken:(NSString *)token
-                     platform:(ARTDevicePlatform)platform NS_DESIGNATED_INITIALIZER;
-- (instancetype)init NS_UNAVAILABLE;
-@end
-
-/// A registered push device.
-@interface ARTPushDevice : NSObject
-@property(nonatomic, copy, readonly, nullable) NSString *deviceId;
-@property(nonatomic, copy, readonly) NSString *username;
-@property(nonatomic, copy, readonly) NSString *token;
-@property(nonatomic, copy, readonly) NSString *platform;
-@property(nonatomic, copy, readonly, nullable) NSString *provider;
-@property(nonatomic, copy, readonly, nullable) NSString *createdAt;
-@property(nonatomic, copy, readonly, nullable) NSString *lastSeenAt;
-@property(nonatomic, copy, readonly, nullable) NSString *updatedAt;
-- (instancetype)initWithMap:(NSDictionary *)map NS_DESIGNATED_INITIALIZER;
-- (instancetype)init NS_UNAVAILABLE;
-@end
-
-/// A page of registered devices.
-@interface ARTPushDeviceList : NSObject
-@property(nonatomic, copy, readonly) NSArray<ARTPushDevice *> *devices;
-@property(nonatomic, assign, readonly) NSInteger total;
-- (instancetype)initWithDevices:(NSArray<ARTPushDevice *> *)devices
-                          total:(NSInteger)total NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 @end
 
@@ -184,23 +150,6 @@ FOUNDATION_EXPORT ARTDevicePlatform const ARTDevicePlatformWeb;
 - (void)send:(ARTSendNotificationInput *)input
     completion:(nullable void (^)(ARTSendNotificationResult *_Nullable result,
                                   NSError *_Nullable error))completion;
-
-/// Registers this device's push token. Safe to repeat (the server updates
-/// the existing token), so call it on every launch and when the token
-/// changes.
-- (void)registerDevice:(ARTRegisterDeviceInput *)input
-            completion:(nullable void (^)(ARTPushDevice *_Nullable device,
-                                          NSError *_Nullable error))completion;
-
-/// Removes a device token (call on logout). Completes with the number of
-/// registrations deleted.
-- (void)unregisterDeviceToken:(NSString *)token
-                   completion:(nullable void (^)(NSInteger deleted,
-                                                 NSError *_Nullable error))completion;
-
-/// Lists the signed-in user's registered devices.
-- (void)listDevices:(void (^)(ARTPushDeviceList *_Nullable list,
-                              NSError *_Nullable error))completion;
 
 @end
 

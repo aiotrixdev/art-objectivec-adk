@@ -53,10 +53,15 @@
 // Reconnect dispatch work item
 @property(nonatomic, strong, nullable) dispatch_block_t reconnectWorkItem;
 
-// Event listener identifiers
-@property(nonatomic, strong) NSUUID *connectionListenerId;
-@property(nonatomic, strong) NSUUID *closeListenerId;
-@property(nonatomic, strong) NSUUID *limitListenerId;
+/// Callers waiting for the connection attempt in flight; nil when there is
+/// none. Concurrent `connect:completion:` calls and reconnects join it.
+@property(nonatomic, strong, nullable)
+    NSMutableArray<void (^)(NSError *_Nullable)> *attemptWaiters;
+
+/// `@[event, identifier]` pairs this instance registered on the shared
+/// socket; `disconnect:` removes them and `connect:completion:` adds them
+/// back.
+@property(nonatomic, strong) NSMutableArray<NSArray *> *socketListeners;
 
 // Agentic reconnect hooks
 @property(nonatomic, strong)
@@ -156,48 +161,8 @@
                        completion:completion];
             };
 
-        _connectionListenerId =
-            [_socket on:@"connection"
-                handler:^(id data) {
-                  typeof(self) strongSelf = weakSelf;
-                  if ([data isKindOfClass:[ConnectionDetail class]]) {
-                      [strongSelf handleOnConnection:(ConnectionDetail *)data];
-                  }
-                }];
-
-        _closeListenerId = [_socket on:@"close"
-                               handler:^(id data) {
-                                 [weakSelf handleOnClose];
-                               }];
-
-        _limitListenerId = [_socket
-                 on:@"limitExceeded"
-            handler:^(id data) {
-              typeof(self) strongSelf = weakSelf;
-              if (!strongSelf) {
-                  return;
-              }
-              NSDictionary *info = [data isKindOfClass:[NSDictionary class]]
-                                       ? (NSDictionary *)data
-                                       : @{};
-              NSString *code = info[@"code"] ?: @"";
-              NSString *errText = info[@"error"] ?: @"";
-              if ([code isEqualToString:@"CONCURRENT_LIMIT_EXCEEDED"]) {
-                  NSLog(@"[ART] Concurrent connection limit reached: %@. All "
-                        @"reconnection attempts stopped. Call connect() again "
-                        @"to retry.",
-                        errText);
-              } else {
-                  NSLog(@"[ART] Billing limit reached: %@. All reconnection "
-                        @"attempts permanently stopped.",
-                        errText);
-              }
-              @synchronized(strongSelf.lock) {
-                  strongSelf.isLimitExceeded = YES;
-                  strongSelf.isConnectable = NO;
-                  strongSelf.state = AdkStateStopped;
-              }
-            }];
+        _socketListeners = [NSMutableArray array];
+        [self attachSocketListeners];
     }
     return self;
 }
@@ -205,16 +170,8 @@
 - (void)dealloc {
     // Unregister our socket listeners so their blocks don't accumulate in
     // the long-lived Socket singleton's emitter.
-    if (_socket) {
-        if (_connectionListenerId) {
-            [_socket off:@"connection" identifier:_connectionListenerId];
-        }
-        if (_closeListenerId) {
-            [_socket off:@"close" identifier:_closeListenerId];
-        }
-        if (_limitListenerId) {
-            [_socket off:@"limitExceeded" identifier:_limitListenerId];
-        }
+    for (NSArray *listener in _socketListeners) {
+        [_socket off:listener[0] identifier:listener[1]];
     }
     if (_reconnectWorkItem) {
         dispatch_block_cancel(_reconnectWorkItem);
@@ -222,35 +179,156 @@
     }
 }
 
+#pragma mark - Socket listeners
+
+- (void)attachSocketListeners {
+    @synchronized(self.lock) {
+        if (self.socketListeners.count > 0) {
+            return;
+        }
+        __weak typeof(self) weakSelf = self;
+        NSDictionary<NSString *, void (^)(id)> *handlers = @{
+            @"connection" : ^(id data) {
+              if ([data isKindOfClass:[ConnectionDetail class]]) {
+                  [weakSelf handleOnConnection:(ConnectionDetail *)data];
+              }
+            },
+            @"close" : ^(id data) {
+              [weakSelf handleOnClose];
+            },
+            @"limitExceeded" : ^(id data) {
+              [weakSelf handleLimitExceeded:data];
+            },
+            @"authenticationFailed" : ^(id data) {
+              [weakSelf handleAuthenticationFailed:data];
+            },
+            @"connectionFailed" : ^(id data) {
+              [weakSelf handleConnectionFailed];
+            },
+        };
+        for (NSString *event in handlers) {
+            [self.socketListeners
+                addObject:@[ event, [self.socket on:event handler:handlers[event]] ]];
+        }
+    }
+}
+
+- (void)detachSocketListeners {
+    NSArray<NSArray *> *listeners;
+    @synchronized(self.lock) {
+        listeners = [self.socketListeners copy];
+        [self.socketListeners removeAllObjects];
+    }
+    for (NSArray *listener in listeners) {
+        [self.socket off:listener[0] identifier:listener[1]];
+    }
+}
+
+- (void)handleLimitExceeded:(id)data {
+    NSDictionary *info =
+        [data isKindOfClass:[NSDictionary class]] ? (NSDictionary *)data : @{};
+    NSString *code = info[@"code"] ?: @"";
+    NSString *errText = info[@"error"] ?: @"";
+    if ([code isEqualToString:ARTConnectionErrorCodeConcurrentLimitExceeded]) {
+        ARTLogError(@"[ART] Concurrent connection limit reached: %@. All "
+                    @"reconnection attempts stopped. Call connect() again "
+                    @"to retry.",
+                    errText);
+    } else {
+        ARTLogError(@"[ART] Billing limit reached: %@. All reconnection "
+                    @"attempts permanently stopped.",
+                    errText);
+    }
+    @synchronized(self.lock) {
+        self.isLimitExceeded = YES;
+        self.isConnectable = NO;
+        self.state = AdkStateStopped;
+    }
+    [self cancelReconnect];
+}
+
+- (void)handleAuthenticationFailed:(id)data {
+    ARTAuthenticationFailedDetail *detail =
+        [data isKindOfClass:[ARTAuthenticationFailedDetail class]] ? data : nil;
+    ARTLogError(@"[ART] Authentication rejected%@: %@. Automatic reconnection "
+                @"has been stopped. Update the credentials and call connect() "
+                @"again.",
+                detail.status != 0
+                    ? [NSString stringWithFormat:@" with HTTP %ld", (long)detail.status]
+                    : @"",
+                detail.error ?: data);
+    @synchronized(self.lock) {
+        self.isConnectable = NO;
+        self.state = AdkStateStopped;
+    }
+    [self cancelReconnect];
+    self.socket.isReConnecting = NO;
+}
+
+- (void)handleConnectionFailed {
+    @synchronized(self.lock) {
+        self.isConnectable = NO;
+        self.state = AdkStateStopped;
+    }
+    [self cancelReconnect];
+}
+
 #pragma mark - Connect
 
 - (void)connect:(nullable ConnectConfig *)config
-     completion:(nullable void (^)(void))completion {
-    __weak typeof(self) weakSelf = self;
+     completion:(nullable void (^)(NSError *_Nullable))completion {
+    void (^finish)(NSError *) = completion ?: ^(NSError *error) {
+    };
+
+    // A call made while an attempt is in flight joins it.
+    BOOL joined = NO;
+    @synchronized(self.lock) {
+        if (self.attemptWaiters) {
+            [self.attemptWaiters addObject:[finish copy]];
+            joined = YES;
+        }
+    }
+    if (joined) {
+        return;
+    }
+
+    [self attachSocketListeners];
+    if (self.socket.isConnectionActive) {
+        @synchronized(self.lock) {
+            self.isConnectable = YES;
+            self.state = AdkStateConnected;
+        }
+        finish(nil);
+        return;
+    }
+
+    [self cancelReconnect];
+    @synchronized(self.lock) {
+        self.isPaused = NO;
+        self.isLimitExceeded = NO;
+        self.reconnectAttempts = 0;
+        self.reconnectDelay = 3000;
+    }
+
+    NSError *timeoutError = nil;
+    if (![self.socket
+            beginConnectionWithTimeoutMs:self.adkConfig ? self.adkConfig.connectionTimeoutMs
+                                                        : 30000
+                                   error:&timeoutError]) {
+        finish(timeoutError);
+        return;
+    }
+
     void (^start)(void) = ^{
-      typeof(self) strongSelf = weakSelf;
-      if (!strongSelf) {
-          if (completion) {
-              completion();
-          }
-          return;
+      @synchronized(self.lock) {
+          self.isConnectable = YES;
+          self.state = AdkStateConnecting;
       }
-      @synchronized(strongSelf.lock) {
-          strongSelf.isConnectable = YES;
-          strongSelf.state = AdkStateConnecting;
-      }
-      [strongSelf initiateSocketConnection:^{
-        typeof(self) strongSelf2 = weakSelf;
-        if (strongSelf2 && strongSelf2.socket.isConnectionActive) {
-            @synchronized(strongSelf2.lock) {
-                if (strongSelf2.state == AdkStateConnecting) {
-                    strongSelf2.state = AdkStateConnected;
-                }
-            }
+      [self attemptConnection:^(NSError *_Nullable error) {
+        @synchronized(self.lock) {
+            self.state = error ? AdkStateStopped : [self settledState];
         }
-        if (completion) {
-            completion();
-        }
+        finish(error);
       }];
     };
 
@@ -261,10 +339,9 @@
         }
         if (self.adkConfig.autoLoadCredsFromJSON || !hasCredentials) {
             [self loadConfig:^(CredentialStore *_Nullable loaded) {
-              typeof(self) strongSelf = weakSelf;
-              if (loaded && strongSelf) {
-                  @synchronized(strongSelf.lock) {
-                      strongSelf.credentialData = loaded;
+              if (loaded) {
+                  @synchronized(self.lock) {
+                      self.credentialData = loaded;
                   }
               }
               start();
@@ -273,6 +350,57 @@
         }
     }
     start();
+}
+
+/// Opens the transport and waits until the connection is ready, sharing one
+/// attempt between concurrent callers. The readiness wait starts together
+/// with the attempt, so it bounds authentication too. The first failure ends
+/// the attempt.
+- (void)attemptConnection:(void (^)(NSError *_Nullable))completion {
+    BOOL running = NO;
+    @synchronized(self.lock) {
+        if (self.attemptWaiters) {
+            running = YES;
+            [self.attemptWaiters addObject:[completion copy]];
+        } else {
+            self.attemptWaiters = [NSMutableArray arrayWithObject:[completion copy]];
+        }
+    }
+    if (running) {
+        return;
+    }
+
+    NSObject *gate = [[NSObject alloc] init];
+    __block NSInteger remaining = 2;
+    void (^stepFinished)(NSError *) = ^(NSError *error) {
+      @synchronized(gate) {
+          if (remaining == 0) {
+              return;
+          }
+          remaining = error ? 0 : remaining - 1;
+          if (remaining > 0) {
+              return;
+          }
+      }
+      NSArray<void (^)(NSError *_Nullable)> *waiters;
+      @synchronized(self.lock) {
+          waiters = [self.attemptWaiters copy];
+          self.attemptWaiters = nil;
+      }
+      for (void (^waiter)(NSError *_Nullable) in waiters) {
+          waiter(error);
+      }
+    };
+    [self initiateSocketConnection:stepFinished];
+    [self.socket wait:stepFinished];
+}
+
+/// `state` after a connection attempt succeeded. Call with `lock` held.
+- (AdkState)settledState {
+    if (self.socket.isConnectionActive) {
+        return AdkStateConnected;
+    }
+    return self.isConnectable ? AdkStateConnecting : AdkStateStopped;
 }
 
 - (void)setCredentials:(CredentialStore *)credentials {
@@ -289,63 +417,52 @@
         if (!self.isPaused) {
             shouldPause = YES;
             self.isPaused = YES;
+            self.isConnectable = NO;
             self.reconnectAttempts = self.maxReconnectAttempts;
-            self.state = AdkStatePaused;
         }
     }
     if (!shouldPause) {
         return;
     }
     [self cancelReconnect];
-    [self.socket closeWebSocket:NO completion:nil];
+    [self.socket failConnection:[ARTConnectionError
+                                    errorWithMessage:@"The connection is paused."
+                                                code:ARTConnectionErrorCodePaused]];
+    @synchronized(self.lock) {
+        self.state = AdkStatePaused;
+    }
 }
 
-- (void)resume:(nullable void (^)(void))completion {
-    BOOL shouldResume = NO;
+- (void)resume:(nullable void (^)(NSError *_Nullable))completion {
+    BOOL paused;
     @synchronized(self.lock) {
-        if (self.isPaused) {
-            shouldResume = YES;
-            self.isPaused = NO;
-            self.reconnectAttempts = 0;
-            self.reconnectDelay = 3000;
-            self.state = AdkStateConnecting;
-        }
+        paused = self.isPaused;
     }
-    if (!shouldResume) {
+    if (!paused) {
         if (completion) {
-            completion();
+            completion(nil);
         }
         return;
     }
-
-    __weak typeof(self) weakSelf = self;
-    [self.socket connectWebSocket:^(NSError *_Nullable error) {
-      typeof(self) strongSelf = weakSelf;
-      if (strongSelf && strongSelf.socket.isConnectionActive) {
-          @synchronized(strongSelf.lock) {
-              if (strongSelf.state == AdkStateConnecting) {
-                  strongSelf.state = AdkStateConnected;
-              }
-          }
-      }
-      if (completion) {
-          completion();
-      }
-    }];
+    [self connect:nil completion:completion];
 }
 
 - (void)disconnect:(nullable void (^)(void))completion {
     @synchronized(self.lock) {
         self.isConnectable = NO;
         self.reconnectAttempts = self.maxReconnectAttempts;
-        self.state = AdkStateStopped;
     }
     [self cancelReconnect];
-
-    __weak typeof(self) weakSelf = self;
+    [self.socket failConnection:[ARTConnectionError
+                                    errorWithMessage:@"The connection was closed."
+                                                code:ARTConnectionErrorCodeClosed]];
     [self.socket closeWebSocket:YES
                      completion:^{
-                       weakSelf.socket.isConnectionActive = NO;
+                       @synchronized(self.lock) {
+                           self.state = AdkStateStopped;
+                       }
+                       self.socket.isConnectionActive = NO;
+                       [self detachSocketListeners];
                        if (completion) {
                            completion();
                        }
@@ -370,7 +487,7 @@
     return @"stopped";
 }
 
-- (void)initiateSocketConnection:(void (^)(void))completion {
+- (void)initiateSocketConnection:(void (^)(NSError *_Nullable))completion {
     AuthenticationConfig *authConfig = nil;
     CredentialStore *_Nonnull (^provider)(void) = self.adkConfig.getCredentials;
     CredentialStore *store = nil;
@@ -385,10 +502,11 @@
     if (!store) {
         ARTLogError(@"Configuration not loaded — call setCredentials:, set "
                     @"AdkConfig.getCredentials, or provide adk-services.json");
-        @synchronized(self.lock) {
-            self.state = AdkStateStopped;
-        }
-        completion();
+        ARTConnectionError *error = [ARTConnectionError
+            errorWithMessage:@"Connection credentials are missing. Please sign in again."
+                        code:ARTConnectionErrorCodeAuthenticationFailed];
+        [self.socket failConnection:error];
+        completion(error);
         return;
     }
 
@@ -402,15 +520,13 @@
                                                     getCredentials:nil];
     authConfig.config = self.adkConfig;
     authConfig.getCredentials = self.adkConfig.getCredentials;
-    [self.socket initiateSocket:authConfig
-                     completion:^(NSError *_Nullable error) {
-                       completion();
-                     }];
+    [self.socket initiateSocket:authConfig completion:completion];
 }
 
 #pragma mark - Connection events
 
 - (void)handleOnConnection:(ConnectionDetail *)connection {
+    [self cancelReconnect];
     BOOL wasReconnect;
     NSArray<void (^)(void)> *handlers;
     @synchronized(self.lock) {
@@ -449,6 +565,10 @@
             self.state = AdkStateStopped;
             return;
         }
+        // The attempt in flight reports its own outcome.
+        if (self.attemptWaiters) {
+            return;
+        }
         self.state = AdkStateConnecting;
     }
     self.socket.isReConnecting = YES;
@@ -466,65 +586,82 @@
     }
 }
 
+/// Schedules the next reconnect attempt; after `maxReconnectAttempts` the
+/// connection fails with `ARTConnectionErrorCodeLost`.
 - (void)handleReconnection {
-    [self cancelReconnect];
-
-    double delayMs;
-    BOOL growDelay;
-    NSInteger attempt;
+    BOOL skip = NO;
+    BOOL giveUp = NO;
+    double delayMs = 0;
+    NSInteger attempt = 0;
+    dispatch_block_t work = nil;
     @synchronized(self.lock) {
-        if (self.isLimitExceeded) {
-            return;
-        }
-        if (self.reconnectAttempts < self.maxReconnectAttempts) {
+        if (self.isLimitExceeded || !self.isConnectable || self.isPaused ||
+            self.reconnectWorkItem) {
+            skip = YES;
+        } else if (self.reconnectAttempts >= self.maxReconnectAttempts) {
+            giveUp = YES;
+        } else {
             self.reconnectAttempts++;
             delayMs = self.reconnectDelay;
-            growDelay = YES;
-        } else {
-            delayMs = self.maxDelay;
-            growDelay = NO;
+            attempt = self.reconnectAttempts;
+            __weak typeof(self) weakSelf = self;
+            work = dispatch_block_create(0, ^{
+              [weakSelf runReconnectAttempt];
+            });
+            self.reconnectWorkItem = work;
         }
-        attempt = self.reconnectAttempts;
     }
-    if (growDelay) {
-        ARTLogInfo(@"Attempting to reconnect in %g seconds... (Attempt %ld)",
-                   delayMs / 1000.0, (long)attempt);
-    } else {
-        ARTLogWarn(@"Max reconnection attempts reached. Will retry every %g "
-                   @"seconds.",
-                   self.maxDelay / 1000.0);
+    if (skip) {
+        return;
     }
-
-    __weak typeof(self) weakSelf = self;
-    dispatch_block_t work = dispatch_block_create(0, ^{
-      typeof(self) strongSelf = weakSelf;
-      if (!strongSelf) {
-          return;
-      }
-      BOOL stillWanted;
-      @synchronized(strongSelf.lock) {
-          stillWanted = strongSelf.isConnectable && !strongSelf.isPaused &&
-                        !strongSelf.isLimitExceeded;
-      }
-      if (!stillWanted) {
-          return;
-      }
-      [strongSelf connect:nil completion:nil];
-      if (growDelay) {
-          // Linear backoff, capped at maxDelay.
-          @synchronized(strongSelf.lock) {
-              strongSelf.reconnectDelay =
-                  MIN(strongSelf.reconnectDelay + 2000, strongSelf.maxDelay);
-          }
-      }
-    });
-    @synchronized(self.lock) {
-        self.reconnectWorkItem = work;
+    if (giveUp) {
+        [self.socket
+            failConnection:[ARTConnectionError
+                               errorWithMessage:@"The connection could not be restored. "
+                                                @"Please reconnect to check your execution."
+                                           code:ARTConnectionErrorCodeLost]];
+        return;
     }
+    ARTLogInfo(@"Attempting to reconnect in %g seconds... (Attempt %ld)",
+               delayMs / 1000.0, (long)attempt);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
                                  (int64_t)(delayMs * NSEC_PER_MSEC)),
                    dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0),
                    work);
+}
+
+- (void)runReconnectAttempt {
+    BOOL stillWanted = NO;
+    @synchronized(self.lock) {
+        self.reconnectWorkItem = nil;
+        if (self.isConnectable && !self.isPaused && !self.isLimitExceeded) {
+            stillWanted = YES;
+            self.state = AdkStateConnecting;
+            // Linear backoff, capped at maxDelay.
+            self.reconnectDelay = MIN(self.reconnectDelay + 2000, self.maxDelay);
+        }
+    }
+    if (!stillWanted) {
+        return;
+    }
+    __weak typeof(self) weakSelf = self;
+    [self attemptConnection:^(NSError *_Nullable error) {
+      typeof(self) strongSelf = weakSelf;
+      if (!strongSelf) {
+          return;
+      }
+      BOOL retry = NO;
+      @synchronized(strongSelf.lock) {
+          if (!error) {
+              strongSelf.state = [strongSelf settledState];
+          } else {
+              retry = strongSelf.isConnectable;
+          }
+      }
+      if (retry) {
+          [strongSelf handleReconnection];
+      }
+    }];
 }
 
 - (NSUUID *)on:(NSString *)event handler:(void (^)(id))handler {
@@ -543,13 +680,15 @@
 
 #pragma mark - Agentic
 
-- (Agent *)agent:(NSString *)agentId {
-    return [[Agent alloc] initWithAgentId:agentId socket:self.socket];
+- (nullable Agent *)agent:(NSString *)agentId error:(NSError **)error {
+    return [[Agent alloc] initWithAgentId:agentId socket:self.socket error:error];
 }
 
-- (Orchestrator *)orchestrator:(NSString *)orchestratorId {
+- (nullable Orchestrator *)orchestrator:(NSString *)orchestratorId
+                                  error:(NSError **)error {
     return [[Orchestrator alloc] initWithOrchestratorId:orchestratorId
-                                                 socket:self.socket];
+                                                 socket:self.socket
+                                                  error:error];
 }
 
 - (NSUUID *)onReconnected:(void (^)(void))handler {
@@ -661,10 +800,12 @@
 }
 
 - (void)getFile:(NSString *)fileId
+       threadId:(NSString *)threadId
       timeoutMs:(NSNumber *)timeoutMs
      completion:(void (^)(ARTStorageFile *_Nullable,
                           NSError *_Nullable))completion {
     [[[ARTStorage alloc] init] getFile:fileId
+                              threadId:threadId
                              timeoutMs:timeoutMs
                             completion:completion];
 }
@@ -694,7 +835,22 @@
 }
 
 - (void)closeWebSocket:(nullable void (^)(void))completion {
-    [self.socket closeWebSocket:NO completion:completion];
+    @synchronized(self.lock) {
+        self.isConnectable = NO;
+    }
+    [self cancelReconnect];
+    [self.socket failConnection:[ARTConnectionError
+                                    errorWithMessage:@"The connection was closed."
+                                                code:ARTConnectionErrorCodeClosed]];
+    [self.socket closeWebSocket:NO
+                     completion:^{
+                       @synchronized(self.lock) {
+                           self.state = AdkStateStopped;
+                       }
+                       if (completion) {
+                           completion();
+                       }
+                     }];
 }
 
 - (void)pushForSecureLine:(NSString *)event

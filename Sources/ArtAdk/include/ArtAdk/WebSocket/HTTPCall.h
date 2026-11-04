@@ -35,8 +35,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// 2. Calls `options.baseUrl` (default: the ART gateway) + `endpoint`, with
 ///    `options.queryParams` form-encoded.
 /// 3. Sends `Authorization`, `Accept`, `X-Org`, `Environment`, `ProjectKey`,
-///    the caller's headers, and `Content-Type: application/json` when there
-///    is a payload.
+///    the caller's headers, and the body's `Content-Type`:
+///    `multipart/form-data` for an `ARTFormDataPayload`, else
+///    `application/json`.
 ///
 /// Completes with the decoded JSON, nil for a 204 or empty body, or an
 /// error. A non-2xx response gives an error whose description is

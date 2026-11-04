@@ -7,23 +7,23 @@
 //  ARTStorage.h
 //  ADK
 //
-//  File storage on the ART gateway.
+//  Temporary media, scoped to a conversation thread and owned by a
+//  configuration (an agent, an orchestrator, or the project by default):
 //
-//  An upload takes three steps:
-//    1. POST {gateway}/api/{tenant}/storage/upload/signed-url
-//       { config_type, config_id, file_name, file_size, content_type,
-//         scopes, ttl_seconds? } → { file_id, upload_url }
-//    2. PUT upload_url (the file bytes; no ART auth on the signed URL)
-//    3. POST {gateway}/api/{tenant}/storage/upload/confirm/{file_id}
-//       → { read_url, file }
+//    upload  POST   {gateway}/api/{tenant}/datalake/v1/system-buckets/temp/objects
+//            multipart: file, owner_config_id, thread_id, ttl_seconds?,
+//            allowed_mime_types? → then POST /objects/{id}/access-url
+//    list    GET    /objects?accessible_by=&thread_id=&page=&page_size=
+//    get     GET    /objects/{id} + POST /objects/{id}/access-url
+//    delete  DELETE /objects/{id}
 //
 //  To let an agent use an uploaded file, attach it to a run:
 //
-//      [agent uploadFileURL:url options:nil
-//                completion:^(ARTFileRef *file, NSError *error) {
+//      [thread uploadFileURL:url options:nil
+//                 completion:^(ARTFileRef *file, NSError *error) {
 //          [thread run:@"Summarize this"
 //              replyId:nil
-//             fileMeta:@[ [ARTFileMeta fileMetaWithFileRef:file] ]
+//             fileMeta:@[ [ARTMediaRef mediaRefWithFileRef:file] ]
 //           completion:^(Run *run, NSError *error) { ... }];
 //      }];
 //
@@ -46,12 +46,16 @@ typedef void (^ARTGetFileCompletion)(ARTStorageFile *_Nullable file,
 
 /// Uploads a local file (for example a document picker result), streaming
 /// it from disk. The name and MIME type come from the URL;
-/// `options.filename` overrides the name.
+/// `options.filename` overrides the name. `options.threadId` is required.
+///
+/// Fails with `ARTUploadStepValidate` when the file is empty, the thread id
+/// is missing or the ADK is not connected, and with `ARTUploadStepUpload` or
+/// `ARTUploadStepGet` when the server rejects the request.
 - (void)uploadFileURL:(NSURL *)fileURL
               options:(nullable ARTUploadOptions *)options
            completion:(ARTUploadCompletion)completion;
 
-/// Uploads bytes from memory.
+/// Uploads bytes from memory. `options.threadId` is required.
 ///
 /// @param filename used when `options.filename` is not set, else
 ///        `upload.bin`.
@@ -62,16 +66,18 @@ typedef void (^ARTGetFileCompletion)(ARTStorageFile *_Nullable file,
            options:(nullable ARTUploadOptions *)options
         completion:(ARTUploadCompletion)completion;
 
-/// Lists stored files, optionally filtered by storage group.
+/// Lists the files `options.configId` (default: the project key) can access
+/// in `options.threadId` (required). Files carry no `readUrl`.
 - (void)listFilesWithOptions:(nullable ARTListOptions *)options
                   completion:(ARTListFilesCompletion)completion;
 
-/// Fetches one file's details, including a signed `readUrl`.
+/// Fetches the metadata and a read URL of the file `fileId` in `threadId`.
 - (void)getFile:(NSString *)fileId
+       threadId:(NSString *)threadId
       timeoutMs:(nullable NSNumber *)timeoutMs
      completion:(ARTGetFileCompletion)completion;
 
-/// Deletes a file. `hard` removes it permanently.
+/// Deletes the file `fileId`. `hard` is ignored: files are always removed.
 - (void)deleteFile:(NSString *)fileId
               hard:(BOOL)hard
          timeoutMs:(nullable NSNumber *)timeoutMs

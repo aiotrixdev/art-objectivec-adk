@@ -8,7 +8,10 @@
 #import "AgentThread.h"
 
 @interface Run ()
-@property(nonatomic, weak) AgentThread *thread;
+/// Keeps the thread alive while the run is active, so the run still ends
+/// when the app holds on to the run only. The thread drops its reference to
+/// the run when it ends.
+@property(nonatomic, strong) AgentThread *thread;
 @property(nonatomic, copy, readwrite) NSString *refId;
 @property(nonatomic, assign, readwrite, getter=isClosed) BOOL closed;
 @property(nonatomic, strong) NSMutableArray<RunDoneHandler> *doneHandlers;
@@ -209,25 +212,13 @@
         return;
     }
     [self clearHumanInputTimer];
-    AgentThread *thread = self.thread;
-    if (!thread) {
-        if (completion) {
-            completion([NSError errorWithDomain:@"ADK.Run"
-                                           code:-1
-                                       userInfo:@{
-                                           NSLocalizedDescriptionKey :
-                                               @"The run's thread was released."
-                                       }]);
-        }
-        return;
-    }
-    [thread sendReply:value
-              replyId:replyId
-           completion:^(NSString *_Nullable refId, NSError *_Nullable err) {
-             if (completion) {
-                 completion(err);
-             }
-           }];
+    [self.thread sendReply:value
+                   replyId:replyId
+                completion:^(NSString *_Nullable refId, NSError *_Nullable err) {
+                  if (completion) {
+                      completion(err);
+                  }
+                }];
 }
 
 - (void)close:(NSString *)reason {
@@ -236,6 +227,21 @@
     }
     AgentError *err = [[AgentError alloc]
         initWithCode:@"RUN_SUPERSEDED"
+             message:reason ?: @"Run closed before terminal event"
+             details:nil
+            threadId:@""
+               refId:@""
+             agentId:@""
+             replyTo:@""];
+    [self settleOutput:nil error:err];
+}
+
+- (void)abort:(NSString *)reason {
+    if (![self markClosed]) {
+        return;
+    }
+    AgentError *err = [[AgentError alloc]
+        initWithCode:@"RUN_CLOSED"
              message:reason ?: @"Run closed before terminal event"
              details:nil
             threadId:@""

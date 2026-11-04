@@ -276,16 +276,6 @@ typedef void (^ARTPushCompletion)(NSString *_Nullable refId,
                           callback([response copy]);
                         }];
 
-                    [strongSelf push:@"art_presence"
-                                data:@{}
-                             options:nil
-                          completion:^(NSError *pushError) {
-                            if (pushError) {
-                                ARTLogWarn(@"Presence request failed: %@",
-                                           pushError.localizedDescription);
-                            }
-                          }];
-
                     PresenceUnsubscribe unsub = ^(void (^_Nullable done)(void)) {
                       __strong typeof(weakSelf) self3 = weakSelf;
                       if (!self3) {
@@ -308,7 +298,18 @@ typedef void (^ARTPushCompletion)(NSString *_Nullable refId,
                                       }];
                     };
 
-                    completion(unsub, nil);
+                    [strongSelf push:@"art_presence"
+                                data:@{}
+                             options:nil
+                          completion:^(NSError *pushError) {
+                            if (pushError) {
+                                [weakSelf.emitter off:@"art_presence"
+                                           identifier:listenerId];
+                                completion(nil, pushError);
+                                return;
+                            }
+                            completion(unsub, nil);
+                          }];
                   }];
 }
 
@@ -345,7 +346,7 @@ typedef void (^ARTPushCompletion)(NSString *_Nullable refId,
 
     NSString *frame = [ARTJSON stringify:response error:nil];
     if (frame) {
-        [self.websocketHandler sendMessage:frame];
+        [self.websocketHandler sendMessage:frame error:nil];
     }
 }
 
@@ -380,17 +381,30 @@ typedef void (^ARTPushCompletion)(NSString *_Nullable refId,
         [self.pendingAcks removeObjectForKey:refId];
     }
     if (ack) {
+        if (ack.timer) {
+            dispatch_block_cancel(ack.timer);
+        }
         ack.callback(nil, error);
     }
 }
 
+#pragma mark - Connection failures
+
+- (NSUUID *)onConnectionFailure:(void (^)(ARTConnectionError *))listener {
+    return [self.websocketHandler onConnectionFailure:listener];
+}
+
+- (void)offConnectionFailure:(NSUUID *)identifier {
+    [self.websocketHandler offConnectionFailure:identifier];
+}
+
 #pragma mark - Subscribe / unsubscribe
 
-- (void)subscribe:(void (^)(void))completion {
+- (void)subscribe:(void (^)(NSError *_Nullable))completion {
     if ([[BaseSubscription reservedChannels]
             containsObject:self.channelConfig.channelName]) {
         if (completion) {
-            completion();
+            completion(nil);
         }
         return;
     }
@@ -415,7 +429,7 @@ typedef void (^ARTPushCompletion)(NSString *_Nullable refId,
                       }
                   }
                   if (completion) {
-                      completion();
+                      completion(error);
                   }
                 }];
 }
@@ -471,7 +485,12 @@ typedef void (^ARTPushCompletion)(NSString *_Nullable refId,
               return;
           }
           void (^resubscribe)(void) = ^{
-            [weakSelf subscribe:nil];
+            [weakSelf subscribe:^(NSError *_Nullable error) {
+              if (error) {
+                  ARTLogError(@"Channel reconnection failed for %@: %@", name,
+                              error.localizedDescription);
+              }
+            }];
           };
           if (strongSelf.isListening) {
               [strongSelf validateSubscription:@"presence" completion:resubscribe];
@@ -522,114 +541,141 @@ typedef void (^ARTPushCompletion)(NSString *_Nullable refId,
           content:(id)content
           options:(nullable PushConfig *)options
        completion:(ARTPushCompletion)completion {
+    id<WebsocketHandler> handler = self.websocketHandler;
+    if (!handler) {
+        completion(nil, MakeError(ErrorCodeNotConnected, @"Not connected"));
+        return;
+    }
     __weak typeof(self) weakSelf = self;
-    [self.websocketHandler wait:^{
-      __strong typeof(weakSelf) strongSelf = weakSelf;
-      if (!strongSelf) {
-          completion(nil, MakeError(ErrorCodeNotConnected,
-                                    @"Subscription deallocated"));
+    [handler wait:^(NSError *_Nullable waitError) {
+      if (waitError) {
+          completion(nil, waitError);
           return;
       }
-
-      ConnectionDetail *connection = [strongSelf.websocketHandler getConnection];
-      if (!connection) {
-          completion(nil, MakeError(ErrorCodeNotConnected, @"Not connected"));
-          return;
-      }
-
-      ChannelConfig *config = strongSelf.channelConfig;
-      NSArray<NSString *> *to = options.to ?: @[];
-
-      NSError *jsonError = nil;
-      NSString *messageStr = [ARTJSON stringify:content error:&jsonError];
-      if (!messageStr) {
-          completion(nil, jsonError);
-          return;
-      }
-
-      // Targeted and secure channels deliver to exactly one user.
-      if (([config.channelType isEqualToString:@"secure"] ||
-           [config.channelType isEqualToString:@"targeted"]) &&
-          to.count != 1 && ![event isEqualToString:@"art_presence"]) {
-          completion(nil, MakeError(ErrorCodeServerError,
-                                    @"Exactly one user must be specified for "
-                                    @"targeted/secure channel"));
-          return;
-      }
-
-      if (![config.channelType isEqualToString:@"secure"] ||
-          [event isEqualToString:@"art_presence"]) {
-          [strongSelf transmit:connection
-                        config:config
-                         event:event
-                            to:to
+      [handler ensureAuthorization:^(NSError *_Nullable authorizationError) {
+        if (authorizationError) {
+            completion(nil, authorizationError);
+            return;
+        }
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) {
+            completion(nil, MakeError(ErrorCodeNotConnected,
+                                      @"Subscription deallocated"));
+            return;
+        }
+        [strongSelf buildFrame:event
+                       content:content
                        options:options
-                    contentStr:messageStr
                     completion:completion];
-          return;
-      }
-
-      // Secure channel: encrypt for the recipient's public key.
-      [strongSelf.websocketHandler
-          pushForSecureLine:@"secured_public_key"
-                       data:@{@"username" : to[0]}
-                     listen:YES
-                 completion:^(id _Nullable secureResult, NSError *secureError) {
-                   __strong typeof(weakSelf) self2 = weakSelf;
-                   if (!self2) {
-                       completion(nil, MakeError(ErrorCodeNotConnected,
-                                                 @"Subscription deallocated"));
-                       return;
-                   }
-                   NSDictionary *inner =
-                       [secureResult isKindOfClass:[NSDictionary class]]
-                           ? ((NSDictionary *)secureResult)[@"data"]
-                           : nil;
-                   if (secureError || ![inner isKindOfClass:[NSDictionary class]]) {
-                       completion(nil, MakeError(ErrorCodeEncryptionError,
-                                                 @"Could not fetch public key"));
-                       return;
-                   }
-                   if ([[inner[@"status"] description]
-                           isEqualToString:@"unsuccessfull"]) {
-                       NSString *errStr = inner[@"error"];
-                       completion(nil,
-                                  MakeError(ErrorCodeEncryptionError,
-                                            [errStr isKindOfClass:[NSString class]]
-                                                ? errStr
-                                                : @"Unknown error"));
-                       return;
-                   }
-                   NSString *pubKey = inner[@"public_key"];
-                   if (![pubKey isKindOfClass:[NSString class]]) {
-                       completion(nil, MakeError(ErrorCodeEncryptionError,
-                                                 @"Could not fetch public key"));
-                       return;
-                   }
-
-                   [self2.websocketHandler
-                              encryptData:messageStr
-                       recipientPublicKey:pubKey
-                               completion:^(NSString *encrypted,
-                                            NSError *encError) {
-                                 if (encError || !encrypted) {
-                                     completion(nil,
-                                                encError
-                                                    ?: MakeError(
-                                                           ErrorCodeEncryptionError,
-                                                           @"Encryption failed"));
-                                     return;
-                                 }
-                                 [self2 transmit:connection
-                                          config:config
-                                           event:event
-                                              to:to
-                                         options:options
-                                      contentStr:encrypted
-                                      completion:completion];
-                               }];
-                 }];
+      }];
     }];
+}
+
+- (void)buildFrame:(NSString *)event
+           content:(id)content
+           options:(nullable PushConfig *)options
+        completion:(ARTPushCompletion)completion {
+    ConnectionDetail *connection = [self.websocketHandler getConnection];
+    if (!connection) {
+        completion(nil, MakeError(ErrorCodeNotConnected, @"Not connected"));
+        return;
+    }
+
+    ChannelConfig *config = self.channelConfig;
+    NSArray<NSString *> *to = options.to ?: @[];
+
+    NSError *jsonError = nil;
+    NSString *messageStr = [ARTJSON stringify:content error:&jsonError];
+    if (!messageStr) {
+        completion(nil, jsonError);
+        return;
+    }
+
+    // Targeted and secure channels deliver to exactly one user.
+    if (([config.channelType isEqualToString:@"secure"] ||
+         [config.channelType isEqualToString:@"targeted"]) &&
+        to.count != 1 && ![event isEqualToString:@"art_presence"]) {
+        completion(nil, MakeError(ErrorCodeServerError,
+                                  @"Exactly one user must be specified for "
+                                  @"sending message."));
+        return;
+    }
+
+    if (![config.channelType isEqualToString:@"secure"] ||
+        [event isEqualToString:@"art_presence"]) {
+        [self transmit:connection
+                config:config
+                 event:event
+                    to:to
+               options:options
+            contentStr:messageStr
+            completion:completion];
+        return;
+    }
+
+    // Secure channel: encrypt for the recipient's public key.
+    __weak typeof(self) weakSelf = self;
+    [self.websocketHandler
+        pushForSecureLine:@"secured_public_key"
+                     data:@{@"username" : to[0]}
+                   listen:YES
+               completion:^(id _Nullable secureResult, NSError *secureError) {
+                 __strong typeof(weakSelf) strongSelf = weakSelf;
+                 if (!strongSelf) {
+                     completion(nil, MakeError(ErrorCodeNotConnected,
+                                               @"Subscription deallocated"));
+                     return;
+                 }
+                 if (secureError) {
+                     completion(nil, secureError);
+                     return;
+                 }
+                 NSDictionary *inner =
+                     [secureResult isKindOfClass:[NSDictionary class]]
+                         ? ((NSDictionary *)secureResult)[@"data"]
+                         : nil;
+                 if (![inner isKindOfClass:[NSDictionary class]]) {
+                     completion(nil, MakeError(ErrorCodeEncryptionError,
+                                               @"Could not fetch public key"));
+                     return;
+                 }
+                 if ([[inner[@"status"] description]
+                         isEqualToString:@"unsuccessfull"]) {
+                     NSString *errStr = inner[@"error"];
+                     completion(nil,
+                                MakeError(ErrorCodeEncryptionError,
+                                          [errStr isKindOfClass:[NSString class]]
+                                              ? errStr
+                                              : @"Unknown error"));
+                     return;
+                 }
+                 NSString *pubKey = inner[@"public_key"];
+                 if (![pubKey isKindOfClass:[NSString class]]) {
+                     completion(nil, MakeError(ErrorCodeEncryptionError,
+                                               @"Could not fetch public key"));
+                     return;
+                 }
+
+                 [strongSelf.websocketHandler
+                            encryptData:messageStr
+                     recipientPublicKey:pubKey
+                             completion:^(NSString *encrypted, NSError *encError) {
+                               if (encError || !encrypted) {
+                                   completion(nil,
+                                              encError
+                                                  ?: MakeError(ErrorCodeEncryptionError,
+                                                               @"Encryption failed"));
+                                   return;
+                               }
+                               [strongSelf transmit:connection
+                                             config:config
+                                              event:event
+                                                 to:to
+                                            options:options
+                                         contentStr:encrypted
+                                         completion:completion];
+                             }];
+               }];
 }
 
 - (void)transmit:(ConnectionDetail *)connection
@@ -649,10 +695,8 @@ typedef void (^ARTPushCompletion)(NSString *_Nullable refId,
         }
         refId = [NSString stringWithFormat:@"%@_%@_%ld", connection.connectionId,
                                            config.channelName, (long)count];
-        // This compares the channel *name* with "secure", so in practice
-        // only targeted channels wait for the server's acknowledgement.
         awaitsAck = [config.channelType isEqualToString:@"targeted"] ||
-                    [config.channelName isEqualToString:@"secure"];
+                    [config.channelType isEqualToString:@"secure"];
     }
 
     NSString *channelFull = config.channelName;
@@ -675,10 +719,13 @@ typedef void (^ARTPushCompletion)(NSString *_Nullable refId,
     }
     if (options.fileMeta.count > 0) {
         NSMutableArray *fileMeta = [NSMutableArray array];
-        for (ARTFileMeta *meta in options.fileMeta) {
+        for (ARTMediaRef *meta in options.fileMeta) {
             [fileMeta addObject:[meta JSONObject]];
         }
         message[@"file_meta"] = fileMeta;
+    }
+    if (options.executionOrigin) {
+        message[@"execution_origin"] = options.executionOrigin;
     }
 
     NSError *jsonError = nil;
@@ -688,21 +735,38 @@ typedef void (^ARTPushCompletion)(NSString *_Nullable refId,
         return;
     }
 
+    id<WebsocketHandler> handler = self.websocketHandler;
+    NSError *sendError = nil;
     if (!awaitsAck || !refId) {
-        [self.websocketHandler sendMessage:frame];
-        completion(refId, nil);
+        if ([handler sendMessage:frame error:&sendError]) {
+            completion(refId, nil);
+        } else {
+            completion(nil, sendError ?: MakeError(ErrorCodeNotConnected, @"Not connected"));
+        }
         return;
     }
+
+    // A failed connection ends the wait for the acknowledgement.
+    NSString *pendingRef = refId;
+    NSUUID *failureListener =
+        [handler onConnectionFailure:^(ARTConnectionError *error) {
+          [self failPendingAck:pendingRef error:error];
+        }];
 
     // Register the acknowledgement before sending, so a fast `SA` can't be
     // missed.
     PendingAck *ack = [[PendingAck alloc] init];
-    ack.callback = completion;
-    __weak typeof(self) weakSelf = self;
-    NSString *pendingRef = refId;
+    ack.callback = ^(NSString *ackRef, NSError *ackError) {
+      [handler offConnectionFailure:failureListener];
+      completion(ackRef, ackError);
+    };
     ack.timer = dispatch_block_create(0, ^{
-      [weakSelf failPendingAck:pendingRef
-                         error:MakeError(ErrorCodeAckTimeout, @"ACK timeout")];
+      [self failPendingAck:pendingRef
+                     error:[ARTConnectionError
+                               errorWithMessage:@"The server has not acknowledged "
+                                                @"this request. Check its status "
+                                                @"before retrying."
+                                           code:ARTConnectionErrorCodeAckTimeout]];
     });
     @synchronized(self.stateLock) {
         self.pendingAcks[refId] = ack;
@@ -711,7 +775,10 @@ typedef void (^ARTPushCompletion)(NSString *_Nullable refId,
                                  (int64_t)(self.ackTimeoutMs * NSEC_PER_MSEC)),
                    dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0),
                    ack.timer);
-    [self.websocketHandler sendMessage:frame];
+    if (![handler sendMessage:frame error:&sendError]) {
+        [self failPendingAck:refId
+                       error:sendError ?: MakeError(ErrorCodeNotConnected, @"Not connected")];
+    }
 }
 
 @end
