@@ -31,7 +31,7 @@ typedef void (^PresenceUnsubscribe)(void (^_Nullable done)(void));
 @property(atomic, strong) NSArray<NSString *> *presenceUsers;
 @property(nonatomic, strong, readonly) EventEmitter *emitter;
 /// How long `push` waits for the server's delivery confirmation on targeted
-/// channels, in milliseconds. Defaults to 50 000.
+/// and secure channels, in milliseconds. Defaults to 50 000.
 @property(atomic, assign) double ackTimeoutMs;
 
 - (instancetype)initWithConnectionID:(NSString *)connectionID
@@ -47,9 +47,19 @@ typedef void (^PresenceUnsubscribe)(void (^_Nullable done)(void));
 /// (`subscribe` or `presence`), then calls `completion`.
 - (void)validateSubscription:(NSString *)process
                   completion:(nullable void (^)(void))completion;
-- (void)subscribe:(nullable void (^)(void))completion;
+/// (Re)subscribes to the channel. Completes with an error when the server
+/// refuses, and with the `ARTConnectionError` when the connection fails; call
+/// it again after reconnecting.
+- (void)subscribe:(nullable void (^)(NSError *_Nullable error))completion;
 - (void)unsubscribe:(nullable void (^)(void))completion;
 - (void)reconnect;
+
+/// Calls `listener` when the connection fails. Returns an id for
+/// `offConnectionFailure:`.
+- (NSUUID *)onConnectionFailure:(void (^)(ARTConnectionError *error))listener;
+
+/// Removes a listener added with `onConnectionFailure:`.
+- (void)offConnectionFailure:(NSUUID *)identifier;
 
 /// Delivers the channel's online users to `callback`, now and whenever
 /// someone joins or leaves. With `unique`, a user connected more than once
@@ -72,8 +82,15 @@ typedef void (^PresenceUnsubscribe)(void (^_Nullable done)(void));
 
 /// Sends an event on this channel.
 ///
-/// On targeted channels the call completes once the server confirms
-/// delivery, or with an `ErrorCodeAckTimeout` error after `ackTimeoutMs`.
+/// The connection's authorisation is renewed first when the access token
+/// changed. On targeted and secure channels the call completes once the
+/// server confirms delivery.
+///
+/// Completes with an `ARTConnectionError` when the connection has failed or
+/// fails before the confirmation, when there is no connection to send on, or
+/// when the confirmation does not arrive within `ackTimeoutMs`
+/// (`ARTConnectionErrorCodeAckTimeout`). The message is never resent, so
+/// check whether it took effect before pushing it again.
 - (void)push:(NSString *)event
           data:(NSDictionary<NSString *, id> *)data
        options:(nullable PushConfig *)options

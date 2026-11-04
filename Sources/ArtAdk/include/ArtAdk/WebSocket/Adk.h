@@ -52,28 +52,67 @@ typedef NS_ENUM(NSInteger, AdkState) {
 
 - (instancetype)initWithConfig:(nullable AdkConfig *)config;
 
+/// Opens the connection to the ART server and completes once it is ready.
+///
 /// Connects using, in order of precedence: `AdkConfig.getCredentials`, the
 /// credentials from `setCredentials:`, or `adk-services.json` (loaded when
 /// `AdkConfig.autoLoadCredsFromJSON` is set, or when no credentials were
 /// supplied at all).
+///
+/// This is also how to recover after `connectionFailed`: it clears the
+/// failure and starts over. A call made while an attempt is in flight joins
+/// it; a call while connected completes at once.
+///
+/// Completes with an `ARTConnectionError` when the attempt fails:
+/// `ARTConnectionErrorCodeAuthenticationFailed` when the credentials are
+/// missing or the server rejects them (the `authenticationFailed` event
+/// fires too), or `ARTConnectionErrorCodeTimeout` when the connection is not
+/// ready within `AdkConfig.connectionTimeoutMs`. Completes with an
+/// `ErrorCodeInvalidArgument` error when `connectionTimeoutMs` is not
+/// positive.
 - (void)connect:(nullable ConnectConfig *)config
-     completion:(nullable void (^)(void))completion;
+     completion:(nullable void (^)(NSError *_Nullable error))completion;
 
 /// Supplies credentials for `connect`. The credentials' `config` is ignored.
-/// Takes effect on the first connection: the auth layer keeps the
-/// credentials it started with.
+/// Credentials naming another organisation, environment, project or client
+/// ID replace the session's tokens on the next connection.
 - (void)setCredentials:(CredentialStore *)credentials;
 
-/// Closes the connection and suspends reconnection until `resume:`.
+/// Closes the connection, keeping subscriptions, and suspends
+/// auto-reconnection until `resume:`.
+///
+/// The connection fails with `ARTConnectionErrorCodePaused`, so active agent
+/// runs end with an error. No-op if already paused.
 - (void)pause;
 
-- (void)resume:(nullable void (^)(void))completion;
+/// Reconnects after `pause` (see `connect:completion:`). Completes at once
+/// if not paused.
+- (void)resume:(nullable void (^)(NSError *_Nullable error))completion;
 
+/// Tears down the connection, subscriptions and interceptors, and removes
+/// this instance's own listeners from the shared socket.
+///
+/// The connection fails with `ARTConnectionErrorCodeClosed`, so active agent
+/// runs end with an error. Call `connect:completion:` to use the instance
+/// again; listeners the app added with `on:handler:` stay registered.
 - (void)disconnect:(nullable void (^)(void))completion;
 
 /// `paused`, `connected`, `retrying` or `stopped`.
 - (NSString *)getState;
 
+/// Registers `handler` for a connection event: `connection`
+/// (`ConnectionDetail`), `open`, `close`, `error`, `limitExceeded`,
+/// `authenticationFailed` (`ARTAuthenticationFailedDetail`) or
+/// `connectionFailed` (`ARTConnectionError`).
+///
+/// `close` reports a closure the ADK may still recover from by reconnecting.
+/// `connectionFailed` reports that the connection is gone for good: the
+/// credentials were rejected, a limit was reached, the connection was paused
+/// or closed, or it could not be restored in time. Active agent runs then
+/// end with an `agent_error` whose details have `source: connection`, and
+/// waits, sends and subscriptions fail with the same error. Fix the cause
+/// and call `connect:completion:` to recover. Returns a token for
+/// `off:identifier:`.
 - (NSUUID *)on:(NSString *)event handler:(void (^)(id data))handler;
 
 - (void)off:(NSString *)event identifier:(NSUUID *)identifier;
@@ -85,11 +124,18 @@ typedef NS_ENUM(NSInteger, AdkState) {
 #pragma mark - Agentic
 
 /// Returns an Agent handle for `agentId` (channel `agent_com_<agentId>`).
-- (Agent *)agent:(NSString *)agentId;
+///
+/// `agentId` is the agent's slug, optionally pinned to a named build
+/// (`my-agent@release2`). Returns nil and sets `error`
+/// (`ErrorCodeInvalidArgument`) for anything else; see
+/// `ARTValidateExecutionReference`.
+- (nullable Agent *)agent:(NSString *)agentId error:(NSError **)error;
 
 /// Returns an Orchestrator handle for `orchestratorId`
-/// (channel `orch_com_<orchestratorId>`).
-- (Orchestrator *)orchestrator:(NSString *)orchestratorId;
+/// (channel `orch_com_<orchestratorId>`). `orchestratorId` is a slug,
+/// optionally with `@buildname`, like the agent id in `agent:error:`.
+- (nullable Orchestrator *)orchestrator:(NSString *)orchestratorId
+                                  error:(NSError **)error;
 
 /// Registers a handler fired after each RE-connection (not the first connect),
 /// so agentic threads can re-attach listeners after a transport bounce.
@@ -124,7 +170,11 @@ typedef NS_ENUM(NSInteger, AdkState) {
 
 #pragma mark - Storage
 
-/// Uploads a local file. `options.configId` defaults to the project key.
+// Temporary media for a thread (`options.threadId` is required), owned by
+// `options.configId`, the project key by default. Scoped variants live on
+// Agent, AgentThread, Orchestrator, OrchestratorThread and Subscription.
+
+/// Uploads a local file.
 - (void)uploadFileURL:(NSURL *)fileURL
               options:(nullable ARTUploadOptions *)options
            completion:(void (^)(ARTFileRef *_Nullable fileRef,
@@ -139,18 +189,20 @@ typedef NS_ENUM(NSInteger, AdkState) {
         completion:(void (^)(ARTFileRef *_Nullable fileRef,
                              NSError *_Nullable error))completion;
 
-/// Lists stored files.
+/// Lists the files in `options.threadId` (required) that `options.configId`
+/// (the project key by default) can access.
 - (void)listFilesWithOptions:(nullable ARTListOptions *)options
                   completion:(void (^)(ARTStorageFileList *_Nullable list,
                                        NSError *_Nullable error))completion;
 
-/// Fetches one file's details, including a signed read URL.
+/// Fetches the metadata and a read URL of the file `fileId` in `threadId`.
 - (void)getFile:(NSString *)fileId
+       threadId:(NSString *)threadId
       timeoutMs:(nullable NSNumber *)timeoutMs
      completion:(void (^)(ARTStorageFile *_Nullable file,
                           NSError *_Nullable error))completion;
 
-/// Deletes a file. `hard` removes it permanently.
+/// Deletes a file. `hard` is ignored: files are always removed.
 - (void)deleteFile:(NSString *)fileId
               hard:(BOOL)hard
          timeoutMs:(nullable NSNumber *)timeoutMs
@@ -164,6 +216,9 @@ typedef NS_ENUM(NSInteger, AdkState) {
        completion:(void (^)(Interception *_Nullable interception,
                             NSError *_Nullable error))completion;
 
+/// Closes the connection without clearing subscriptions. The connection
+/// fails with `ARTConnectionErrorCodeClosed` and does not reconnect until
+/// `connect:completion:` is called.
 - (void)closeWebSocket:(nullable void (^)(void))completion;
 
 - (void)pushForSecureLine:(NSString *)event

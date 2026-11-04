@@ -17,9 +17,8 @@ ARTNotificationStatus const ARTNotificationStatusUnread = @"unread";
 ARTNotificationStatus const ARTNotificationStatusRead = @"read";
 ARTNotificationStatus const ARTNotificationStatusArchived = @"archived";
 
-ARTDevicePlatform const ARTDevicePlatformAndroid = @"android";
-ARTDevicePlatform const ARTDevicePlatformIOS = @"ios";
-ARTDevicePlatform const ARTDevicePlatformWeb = @"web";
+ARTNotificationChannel const ARTNotificationChannelInApp = @"in_app";
+ARTNotificationChannel const ARTNotificationChannelEmail = @"email";
 
 static NSString *_Nullable ARTNotificationString(id value) {
     return [ARTJSON stringValue:value];
@@ -121,56 +120,6 @@ static NSInteger ARTNotificationInt(id value) {
     if (self) {
         _created = created;
         _skipped = skipped;
-    }
-    return self;
-}
-
-@end
-
-@implementation ARTRegisterDeviceInput
-
-- (instancetype)initWithToken:(NSString *)token platform:(ARTDevicePlatform)platform {
-    self = [super init];
-    if (self) {
-        _token = [token copy] ?: @"";
-        _platform = [platform copy] ?: ARTDevicePlatformIOS;
-    }
-    return self;
-}
-
-@end
-
-@implementation ARTPushDevice
-
-- (instancetype)initWithMap:(NSDictionary *)map {
-    self = [super init];
-    if (self) {
-        NSString * (^string)(NSString *) = ^NSString *(NSString *key) {
-          id value = map[key];
-          return [value isKindOfClass:[NSString class]] ? value : nil;
-        };
-        _deviceId = [ARTNotificationString(map[@"id"]) copy];
-        _username = [string(@"username") copy] ?: @"";
-        _token = [string(@"token") copy] ?: @"";
-        _platform = [string(@"platform") copy] ?: @"";
-        _provider = [string(@"provider") copy];
-        _createdAt = [string(@"created_at") copy];
-        _lastSeenAt = [string(@"last_seen_at") copy];
-        _updatedAt = [string(@"updated_at") copy];
-    }
-    return self;
-}
-
-@end
-
-@implementation ARTPushDeviceList
-
-- (instancetype)initWithDevices:(NSArray<ARTPushDevice *> *)devices
-                          total:(NSInteger)total {
-    self = [super init];
-    if (self) {
-        _devices = [devices copy] ?: @[];
-        _total = total;
     }
     return self;
 }
@@ -297,7 +246,7 @@ static ARTNotification *_Nullable ARTNormalizeNotification(id payload) {
     if (params.limit) {
         query[@"limit"] = params.limit.stringValue;
     }
-    [self call:@"" devices:NO method:@"GET" query:query payload:nil
+    [self call:@"" method:@"GET" query:query payload:nil
         completion:^(NSDictionary *data, NSError *error) {
           if (!data) {
               completion(nil, error);
@@ -320,7 +269,7 @@ static ARTNotification *_Nullable ARTNormalizeNotification(id payload) {
 }
 
 - (void)unreadCount:(void (^)(NSInteger, NSError *_Nullable))completion {
-    [self call:@"/unread-count" devices:NO method:@"GET" query:nil payload:nil
+    [self call:@"/unread-count" method:@"GET" query:nil payload:nil
         completion:^(NSDictionary *data, NSError *error) {
           completion(data ? ARTNotificationInt(data[@"unread_count"]) : 0,
                      data ? nil : error);
@@ -331,7 +280,6 @@ static ARTNotification *_Nullable ARTNormalizeNotification(id payload) {
       completion:(void (^)(NSInteger, NSError *_Nullable))completion {
     NSArray<NSString *> *list = ids ?: @[];
     [self call:@"/mark-read"
-           devices:NO
             method:@"POST"
              query:nil
            payload:@{@"ids" : list, @"all" : @(list.count == 0)}
@@ -372,7 +320,7 @@ static ARTNotification *_Nullable ARTNormalizeNotification(id payload) {
     if (input.dedupKey) {
         payload[@"dedup_key"] = input.dedupKey;
     }
-    [self call:@"/notify" devices:NO method:@"POST" query:nil payload:payload
+    [self call:@"/notify" method:@"POST" query:nil payload:payload
         completion:^(NSDictionary *data, NSError *error) {
           if (!completion) {
               return;
@@ -388,74 +336,6 @@ static ARTNotification *_Nullable ARTNormalizeNotification(id payload) {
         }];
 }
 
-#pragma mark Push devices (REST)
-
-- (void)registerDevice:(ARTRegisterDeviceInput *)input
-            completion:(void (^)(ARTPushDevice *_Nullable,
-                                 NSError *_Nullable))completion {
-    NSMutableDictionary *payload = [@{
-        @"token" : input.token ?: @"",
-        @"platform" : input.platform ?: ARTDevicePlatformIOS,
-    } mutableCopy];
-    if (input.username.length > 0) {
-        payload[@"username"] = input.username;
-    }
-    [self call:@"/register" devices:YES method:@"POST" query:nil payload:payload
-        completion:^(NSDictionary *data, NSError *error) {
-          if (!completion) {
-              return;
-          }
-          if (!data) {
-              completion(nil, error);
-              return;
-          }
-          id device = data[@"device"];
-          completion([device isKindOfClass:[NSDictionary class]]
-                         ? [[ARTPushDevice alloc] initWithMap:device]
-                         : nil,
-                     nil);
-        }];
-}
-
-- (void)unregisterDeviceToken:(NSString *)token
-                   completion:(void (^)(NSInteger, NSError *_Nullable))completion {
-    [self call:@"/unregister"
-           devices:YES
-            method:@"POST"
-             query:nil
-           payload:@{@"token" : token ?: @""}
-        completion:^(NSDictionary *data, NSError *error) {
-          if (completion) {
-              completion(data ? ARTNotificationInt(data[@"deleted"]) : 0,
-                         data ? nil : error);
-          }
-        }];
-}
-
-- (void)listDevices:(void (^)(ARTPushDeviceList *_Nullable,
-                              NSError *_Nullable))completion {
-    [self call:@"" devices:YES method:@"GET" query:nil payload:nil
-        completion:^(NSDictionary *data, NSError *error) {
-          if (!data) {
-              completion(nil, error);
-              return;
-          }
-          NSMutableArray<ARTPushDevice *> *devices = [NSMutableArray array];
-          id raw = data[@"devices"];
-          if ([raw isKindOfClass:[NSArray class]]) {
-              for (id item in (NSArray *)raw) {
-                  if ([item isKindOfClass:[NSDictionary class]]) {
-                      [devices addObject:[[ARTPushDevice alloc] initWithMap:item]];
-                  }
-              }
-          }
-          completion([[ARTPushDeviceList alloc]
-                         initWithDevices:devices
-                                   total:ARTNotificationInt(data[@"total"])],
-                     nil);
-        }];
-}
-
 #pragma mark Internals
 
 - (nullable NSString *)tenant:(NSError **)error {
@@ -466,7 +346,6 @@ static ARTNotification *_Nullable ARTNormalizeNotification(id payload) {
 /// REST call through the host ADK. Completes with the response's `data`
 /// object, or the whole response when it has no `data` wrapper.
 - (void)call:(NSString *)suffix
-       devices:(BOOL)devices
         method:(NSString *)method
          query:(nullable NSDictionary<NSString *, NSString *> *)query
        payload:(nullable NSDictionary *)payload
@@ -478,9 +357,9 @@ static ARTNotification *_Nullable ARTNormalizeNotification(id payload) {
         completion(nil, tenantError);
         return;
     }
-    NSString *endpoint = [NSString
-        stringWithFormat:@"/api/%@/%@%@", [ARTEncoding uriComponent:tenant],
-                         devices ? @"push-devices" : @"notifications", suffix];
+    NSString *endpoint =
+        [NSString stringWithFormat:@"/api/%@/notifications%@",
+                                   [ARTEncoding uriComponent:tenant], suffix];
     CallApiProps *props = [[CallApiProps alloc]
         initWithMethod:method
                payload:payload

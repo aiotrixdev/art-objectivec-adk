@@ -6,6 +6,7 @@
 #import "Orchestrator.h"
 #import "OrchestratorThread.h"
 #import "Subscription.h"
+#import "ARTExecutionReference.h"
 #import "ARTStorage.h"
 
 @interface Orchestrator ()
@@ -15,7 +16,11 @@
 @implementation Orchestrator
 
 - (instancetype)initWithOrchestratorId:(NSString *)orchestratorId
-                                socket:(Socket *)socket {
+                                socket:(Socket *)socket
+                                 error:(NSError **)error {
+    if (!ARTValidateExecutionReference(orchestratorId, error)) {
+        return nil;
+    }
     self = [super initWithSocket:socket];
     if (self) {
         _orchestratorId = [orchestratorId copy];
@@ -52,11 +57,17 @@
               options:(ARTUploadOptions *)options
            completion:(void (^)(ARTFileRef *_Nullable,
                                 NSError *_Nullable))completion {
-    ARTUploadOptions *scoped = options ? [options copy] : [[ARTUploadOptions alloc] init];
-    scoped.configId = self.orchestratorId;
-    [[[ARTStorage alloc] init] uploadFileURL:fileURL
-                                     options:scoped
-                                  completion:completion];
+    [self configurationId:^(NSString *configId, NSError *error) {
+      if (!configId) {
+          completion(nil, error);
+          return;
+      }
+      ARTUploadOptions *scoped = options ? [options copy] : [[ARTUploadOptions alloc] init];
+      scoped.configId = configId;
+      [[[ARTStorage alloc] init] uploadFileURL:fileURL
+                                       options:scoped
+                                    completion:completion];
+    }];
 }
 
 - (void)uploadData:(NSData *)data
@@ -65,21 +76,33 @@
            options:(ARTUploadOptions *)options
         completion:(void (^)(ARTFileRef *_Nullable,
                              NSError *_Nullable))completion {
-    ARTUploadOptions *scoped = options ? [options copy] : [[ARTUploadOptions alloc] init];
-    scoped.configId = self.orchestratorId;
-    [[[ARTStorage alloc] init] uploadData:data
-                                 filename:filename
-                              contentType:contentType
-                                  options:scoped
-                               completion:completion];
+    [self configurationId:^(NSString *configId, NSError *error) {
+      if (!configId) {
+          completion(nil, error);
+          return;
+      }
+      ARTUploadOptions *scoped = options ? [options copy] : [[ARTUploadOptions alloc] init];
+      scoped.configId = configId;
+      [[[ARTStorage alloc] init] uploadData:data
+                                   filename:filename
+                                contentType:contentType
+                                    options:scoped
+                                 completion:completion];
+    }];
 }
 
 - (void)listFilesWithOptions:(ARTListOptions *)options
                   completion:(void (^)(ARTStorageFileList *_Nullable,
                                        NSError *_Nullable))completion {
-    ARTListOptions *scoped = options ? [options copy] : [[ARTListOptions alloc] init];
-    scoped.configId = self.orchestratorId;
-    [[[ARTStorage alloc] init] listFilesWithOptions:scoped completion:completion];
+    [self configurationId:^(NSString *configId, NSError *error) {
+      if (!configId) {
+          completion(nil, error);
+          return;
+      }
+      ARTListOptions *scoped = options ? [options copy] : [[ARTListOptions alloc] init];
+      scoped.configId = configId;
+      [[[ARTStorage alloc] init] listFilesWithOptions:scoped completion:completion];
+    }];
 }
 
 @end

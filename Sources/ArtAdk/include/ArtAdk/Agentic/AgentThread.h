@@ -9,9 +9,12 @@
 //
 //  A single conversation thread within an Agent. Outbound messages carry a
 //  top-level `thread_id`, and replies tagged with this thread's id are
-//  routed back to it (as well as untagged channel events).
+//  routed back to it (as well as untagged channel events). When the
+//  connection fails, the active run ends with an `agent_error` whose details
+//  have `source: connection`.
 //
 
+#import <ArtAdk/Types/SocketTypes.h>
 #import <Foundation/Foundation.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -21,7 +24,7 @@ NS_ASSUME_NONNULL_BEGIN
 @class AgentEventEnvelope;
 @class HumanInputRequest;
 @class ARTThreadState;
-@class ARTFileMeta;
+@class ARTMediaRef;
 @class ARTFileRef;
 @class ARTStorageFileList;
 @class ARTUploadOptions;
@@ -56,6 +59,16 @@ typedef void (^ARTStateUnsubscribe)(void);
 /// A new random thread id (a lowercase UUID).
 + (NSString *)generateThreadId;
 
+/// Whether `dispose` has been called.
+@property(nonatomic, assign, readonly, getter=isDisposed) BOOL disposed;
+
+/// Stops this thread: ends its active run and removes only this thread's
+/// listeners. The agent's channel stays connected for other threads.
+///
+/// Calling it again does nothing. Afterwards `run` and replies fail, and new
+/// listeners are ignored.
+- (void)dispose;
+
 /// Subscribes `callback` to every typed event on this thread. The first call
 /// installs the underlying subscription listeners.
 - (void)listen:(AgentUserListener)callback;
@@ -87,22 +100,38 @@ typedef void (^ARTStateUnsubscribe)(void);
 /// Starts a new Run. When `replyId` is set the outbound event is `user_reply`
 /// (carrying `reply_id`); otherwise `user_input`. Any previous active run on
 /// this thread is force-closed.
+///
+/// Fails once the thread is disposed. Completes with an `ARTConnectionError`
+/// when the connection fails before the request is sent (or, on channels
+/// that acknowledge messages, before the server acknowledges it); the run
+/// then ends with an `agent_error` too. The request is never resent, so
+/// check whether it took effect before running it again.
 - (void)run:(id)userInput
      replyId:(nullable NSString *)replyId
   completion:(void (^)(Run *_Nullable run, NSError *_Nullable error))completion;
 
 /// Same as `run:replyId:completion:`, attaching uploaded files the agent may
 /// use. They are sent as the frame's `file_meta`; upload them first, for
-/// example with `-[Agent uploadFileURL:options:completion:]`.
+/// example with `uploadFileURL:options:completion:`.
 - (void)run:(id)userInput
      replyId:(nullable NSString *)replyId
-    fileMeta:(nullable NSArray<ARTFileMeta *> *)fileMeta
+    fileMeta:(nullable NSArray<ARTMediaRef *> *)fileMeta
   completion:(void (^)(Run *_Nullable run, NSError *_Nullable error))completion;
+
+/// Same as `run:replyId:fileMeta:completion:`. `executionOrigin` says where
+/// the run was started; it is sent as `execution_origin` on the run and on
+/// the replies sent while it is the latest run. Leave it nil for ordinary
+/// runs.
+- (void)run:(id)userInput
+            replyId:(nullable NSString *)replyId
+           fileMeta:(nullable NSArray<ARTMediaRef *> *)fileMeta
+    executionOrigin:(nullable ARTExecutionOrigin)executionOrigin
+         completion:(void (^)(Run *_Nullable run, NSError *_Nullable error))completion;
 
 #pragma mark - Storage (thread-scoped)
 
-/// Uploads a local file scoped to this thread: `configId` is always the
-/// thread id, whatever `options` contains.
+/// Uploads a local file for this thread, owned by the agent's channel
+/// configuration (`options.configId` and `options.threadId` are always set).
 - (void)uploadFileURL:(NSURL *)fileURL
               options:(nullable ARTUploadOptions *)options
            completion:(void (^)(ARTFileRef *_Nullable fileRef,
@@ -116,7 +145,8 @@ typedef void (^ARTStateUnsubscribe)(void);
         completion:(void (^)(ARTFileRef *_Nullable fileRef,
                              NSError *_Nullable error))completion;
 
-/// Lists files scoped to this thread.
+/// Lists this thread's files that the agent's channel configuration can
+/// access.
 - (void)listFilesWithOptions:(nullable ARTListOptions *)options
                   completion:(void (^)(ARTStorageFileList *_Nullable list,
                                        NSError *_Nullable error))completion;
