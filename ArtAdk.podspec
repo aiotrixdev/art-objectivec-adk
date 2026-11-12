@@ -1,6 +1,6 @@
 Pod::Spec.new do |spec|
   spec.name         = "ArtAdk"
-  spec.version      = "1.0.3"
+  spec.version      = "1.0.4"
   spec.summary      = "Objective-C ADK for ART - A Realtime Tech Communication."
   spec.description  = <<-DESC
                     Objective-C ADK for ART, a realtime messaging platform providing WebSocket-based channels,
@@ -50,7 +50,8 @@ Pod::Spec.new do |spec|
     core.project_header_files = "Sources/ArtAdk/include/ArtAdk/Agentic/ARTThreadStateStore.h",
                                 "Sources/ArtAdk/include/ArtAdk/Crypto/TweetNaCl/ctweetnacl.h",
                                 "Sources/ArtAdk/include/ArtAdk/WebSocket/ARTEventBuffer.h",
-                                "Sources/ArtAdk/include/ArtAdk/WebSocket/BaseSubscription+Internal.h"
+                                "Sources/ArtAdk/include/ArtAdk/WebSocket/BaseSubscription+Internal.h",
+                                "Sources/ArtAdk/include/ArtAdk/WebSocket/HTTPCall+Internal.h"
     core.header_mappings_dir  = "Sources/ArtAdk/include/ArtAdk"
     core.frameworks           = "UniformTypeIdentifiers"
   end

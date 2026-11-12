@@ -21,6 +21,7 @@
         _authToken = [authToken copy];
         _getCredentials = [getCredentials copy];
         _root = [root copy];
+        _connectionTimeoutMs = 30000;
     }
     return self;
 }

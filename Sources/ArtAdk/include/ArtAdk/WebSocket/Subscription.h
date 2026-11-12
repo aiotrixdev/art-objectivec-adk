@@ -39,10 +39,19 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)handleMessage:(NSString *)event payload:(NSDictionary *)payload;
 
+#pragma mark - Configuration
+
+/// Id of the server-side configuration behind this channel (for example the
+/// agent or orchestrator), resolved when subscribing. Storage uses it as the
+/// owner of uploaded files. Returns nil and sets `error` when the server did
+/// not resolve one.
+- (nullable NSString *)configurationId:(NSError **)error;
+
 #pragma mark - Storage (orchestrator-enabled channels)
 
-/// Uploads a local file scoped to this channel (`config_id` is the channel
-/// name). Fails unless the channel is orchestrator-enabled.
+/// Uploads a local file owned by this channel's configuration.
+/// `options.threadId` is required. Fails unless the channel is
+/// orchestrator-enabled.
 - (void)uploadFileURL:(NSURL *)fileURL
               options:(nullable ARTUploadOptions *)options
            completion:(void (^)(ARTFileRef *_Nullable fileRef,
@@ -56,7 +65,8 @@ NS_ASSUME_NONNULL_BEGIN
         completion:(void (^)(ARTFileRef *_Nullable fileRef,
                              NSError *_Nullable error))completion;
 
-/// Lists files scoped to this channel. Fails unless the channel is
+/// Lists the files this channel's configuration can access in
+/// `options.threadId` (required). Fails unless the channel is
 /// orchestrator-enabled.
 - (void)listFilesWithOptions:(nullable ARTListOptions *)options
                   completion:(void (^)(ARTStorageFileList *_Nullable list,

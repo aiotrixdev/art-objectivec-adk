@@ -34,10 +34,19 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSString *)channelName;
 
 /// Returns the active Subscription, kicking off the subscribe on first need.
-/// Concurrent callers are coalesced onto a single network round-trip.
+/// Concurrent callers are coalesced onto a single network round-trip, and a
+/// failed subscribe is tried again on the next call.
+///
+/// Waits for the connection first, so it completes with the
+/// `ARTConnectionError` once the connection has failed.
 - (void)getSubscription:
     (void (^)(Subscription *_Nullable subscription,
               NSError *_Nullable error))completion;
+
+/// Id of the server-side configuration behind this workflow's channel.
+/// Storage uses it as the owner of uploaded files.
+- (void)configurationId:(void (^)(NSString *_Nullable configurationId,
+                                  NSError *_Nullable error))completion;
 
 @end
 

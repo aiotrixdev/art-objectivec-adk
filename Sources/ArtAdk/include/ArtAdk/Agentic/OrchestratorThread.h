@@ -45,8 +45,12 @@ NS_ASSUME_NONNULL_BEGIN
   completion:(nullable void (^)(NSError *_Nullable error))completion;
 
 /// Sends a message tagged with this thread's `threadId`. The caller's
-/// options (`to`, `fileMeta`) are kept; `threadID` is always this thread's
-/// id. Records a `submitted` state.
+/// options (`to`, `fileMeta`, `executionOrigin`) are kept; `threadID` is
+/// always this thread's id. Records a `submitted` state.
+///
+/// When sending fails the state becomes `failed` and the completion gets the
+/// error; an `ARTConnectionError` is also reported to `listen:` callbacks as
+/// an `agent_error`. The message is never resent.
 - (void)push:(NSString *)event
         data:(NSDictionary<NSString *, id> *)data
      options:(nullable PushConfig *)options
@@ -81,8 +85,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark - Storage (thread-scoped)
 
-/// Uploads a local file scoped to this thread (`config_id` is the thread
-/// id). Fails after `dispose`.
+/// Uploads a local file for this thread, owned by the channel's
+/// configuration (`options.configId` and `options.threadId` are always set).
+/// Fails after `dispose`.
 - (void)uploadFileURL:(NSURL *)fileURL
               options:(nullable ARTUploadOptions *)options
            completion:(void (^)(ARTFileRef *_Nullable fileRef,
@@ -96,7 +101,8 @@ NS_ASSUME_NONNULL_BEGIN
         completion:(void (^)(ARTFileRef *_Nullable fileRef,
                              NSError *_Nullable error))completion;
 
-/// Lists files scoped to this thread. Fails after `dispose`.
+/// Lists this thread's files that the channel's configuration can access.
+/// Fails after `dispose`.
 - (void)listFilesWithOptions:(nullable ARTListOptions *)options
                   completion:(void (^)(ARTStorageFileList *_Nullable list,
                                        NSError *_Nullable error))completion;

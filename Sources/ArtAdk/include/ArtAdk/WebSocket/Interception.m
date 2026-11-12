@@ -257,7 +257,10 @@
                     error.localizedDescription);
         return;
     }
-    [self.websocketHandler sendMessage:frame];
+    if (![self.websocketHandler sendMessage:frame error:&error]) {
+        ARTLogError(@"Interceptor response could not be sent: %@",
+                    error.localizedDescription ?: @"not connected");
+    }
 }
 
 @end

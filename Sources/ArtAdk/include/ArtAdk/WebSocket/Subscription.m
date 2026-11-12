@@ -307,33 +307,53 @@
     [self acknowledge:payload returnFlag:@"CA"];
 }
 
+#pragma mark - Configuration
+
+- (nullable NSString *)configurationId:(NSError **)error {
+    NSString *identifier = self.channelConfig.configurationID;
+    if (identifier.length > 0) {
+        return identifier;
+    }
+    if (error) {
+        *error = MakeError(ErrorCodeServerError,
+                           @"Configuration was not resolved by the server");
+    }
+    return nil;
+}
+
 #pragma mark - Storage (orchestrator-enabled channels)
 
-- (nullable NSError *)storageUnavailableError {
-    if (self.channelConfig.orchestratorEnabled) {
+/// The configuration that owns this channel's files, or nil and an error
+/// unless the channel is orchestrator-enabled and has one.
+- (nullable NSString *)storageOwner:(NSError **)error {
+    if (!self.channelConfig.orchestratorEnabled) {
+        if (error) {
+            *error = [NSError
+                errorWithDomain:ARTUploadErrorDomain
+                           code:ARTUploadStepValidate
+                       userInfo:@{
+                           NSLocalizedDescriptionKey :
+                               @"Storage requires an orchestrator-enabled channel",
+                           ARTUploadStepNameKey : ARTUploadStepName(ARTUploadStepValidate)
+                       }];
+        }
         return nil;
     }
-    return [NSError
-        errorWithDomain:ARTUploadErrorDomain
-                   code:ARTUploadStepValidate
-               userInfo:@{
-                   NSLocalizedDescriptionKey :
-                       @"Storage requires an orchestrator-enabled channel",
-                   ARTUploadStepNameKey : ARTUploadStepName(ARTUploadStepValidate)
-               }];
+    return [self configurationId:error];
 }
 
 - (void)uploadFileURL:(NSURL *)fileURL
               options:(ARTUploadOptions *)options
            completion:(void (^)(ARTFileRef *_Nullable,
                                 NSError *_Nullable))completion {
-    NSError *error = [self storageUnavailableError];
-    if (error) {
+    NSError *error = nil;
+    NSString *owner = [self storageOwner:&error];
+    if (!owner) {
         completion(nil, error);
         return;
     }
     ARTUploadOptions *scoped = options ? [options copy] : [[ARTUploadOptions alloc] init];
-    scoped.configId = self.channelConfig.channelName;
+    scoped.configId = owner;
     [[[ARTStorage alloc] init] uploadFileURL:fileURL
                                      options:scoped
                                   completion:completion];
@@ -345,13 +365,14 @@
            options:(ARTUploadOptions *)options
         completion:(void (^)(ARTFileRef *_Nullable,
                              NSError *_Nullable))completion {
-    NSError *error = [self storageUnavailableError];
-    if (error) {
+    NSError *error = nil;
+    NSString *owner = [self storageOwner:&error];
+    if (!owner) {
         completion(nil, error);
         return;
     }
     ARTUploadOptions *scoped = options ? [options copy] : [[ARTUploadOptions alloc] init];
-    scoped.configId = self.channelConfig.channelName;
+    scoped.configId = owner;
     [[[ARTStorage alloc] init] uploadData:data
                                  filename:filename
                               contentType:contentType
@@ -362,13 +383,14 @@
 - (void)listFilesWithOptions:(ARTListOptions *)options
                   completion:(void (^)(ARTStorageFileList *_Nullable,
                                        NSError *_Nullable))completion {
-    NSError *error = [self storageUnavailableError];
-    if (error) {
+    NSError *error = nil;
+    NSString *owner = [self storageOwner:&error];
+    if (!owner) {
         completion(nil, error);
         return;
     }
     ARTListOptions *scoped = options ? [options copy] : [[ARTListOptions alloc] init];
-    scoped.configId = self.channelConfig.channelName;
+    scoped.configId = owner;
     [[[ARTStorage alloc] init] listFilesWithOptions:scoped completion:completion];
 }
 
@@ -543,9 +565,11 @@
     }
     reply[@"content"] = content;
 
-    NSString *frame = [ARTJSON stringify:reply error:nil];
-    if (frame) {
-        [self.websocketHandler sendMessage:frame];
+    NSError *sendError = nil;
+    NSString *frame = [ARTJSON stringify:reply error:&sendError];
+    if (!frame || ![self.websocketHandler sendMessage:frame error:&sendError]) {
+        ARTLogError(@"HITL reply could not be sent: %@",
+                    sendError.localizedDescription ?: @"not connected");
     }
 }
 

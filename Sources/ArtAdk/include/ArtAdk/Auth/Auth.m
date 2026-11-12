@@ -7,6 +7,7 @@
 #import "ARTSupport.h"
 #import "AuthTypes.h"
 #import "Constant.h"
+#import "HTTPCall+Internal.h"
 #import "HTTPCall.h"
 #import "Utils.h"
 
@@ -14,6 +15,54 @@
 static const double ARTRenewalLeewaySeconds = 30;
 
 typedef void (^ARTAuthCompletion)(AuthData *_Nullable, NSError *_Nullable);
+
+NSErrorDomain const ARTAuthHttpErrorDomain = @"com.art.adk.auth";
+
+@implementation ARTAuthHttpError
+
++ (instancetype)errorWithMessage:(NSString *)message
+                          status:(NSInteger)status
+                            body:(id)body {
+    NSMutableDictionary *userInfo = [NSMutableDictionary dictionary];
+    userInfo[NSLocalizedDescriptionKey] = message ?: @"";
+    userInfo[ARTHTTPStatusCodeKey] = @(status);
+    if (body) {
+        userInfo[ARTHTTPResponseBodyKey] = body;
+    }
+    return [self errorWithDomain:ARTAuthHttpErrorDomain code:status userInfo:userInfo];
+}
+
+- (NSString *)message {
+    return self.userInfo[NSLocalizedDescriptionKey] ?: @"";
+}
+
+- (NSInteger)status {
+    return [self.userInfo[ARTHTTPStatusCodeKey] integerValue];
+}
+
+- (id)body {
+    return self.userInfo[ARTHTTPResponseBodyKey];
+}
+
+- (BOOL)isTerminal {
+    return self.status == 401 || self.status == 403;
+}
+
+- (NSString *)description {
+    return [NSString stringWithFormat:@"authenticationFailed (%ld): %@",
+                                      (long)self.status, self.message];
+}
+
+@end
+
+BOOL ARTIsTerminalAuthError(NSError *error) {
+    return [error isKindOfClass:[ARTAuthHttpError class]] &&
+           ((ARTAuthHttpError *)error).isTerminal;
+}
+
+static BOOL ARTSameString(NSString *_Nullable a, NSString *_Nullable b) {
+    return a == b || [a isEqualToString:b];
+}
 
 @interface RefreshInfo : NSObject
 @property(nonatomic, assign) BOOL expired;
@@ -71,6 +120,14 @@ static NSLock *AuthSingletonLock(void) {
     NSLock *lock = AuthSingletonLock();
     [lock lock];
 
+    if (_instance != nil && credentials != nil) {
+        if ([self sameIdentity:[_instance getCredentials] as:credentials]) {
+            [_instance replaceCredentials:credentials];
+        } else {
+            _instance = [[Auth alloc] initWithCredentials:credentials];
+        }
+    }
+
     if (_instance != nil) {
         Auth *existing = _instance;
         [lock unlock];
@@ -91,6 +148,24 @@ static NSLock *AuthSingletonLock(void) {
     Auth *result = _instance;
     [lock unlock];
     return result;
+}
+
+- (void)replaceCredentials:(AuthenticationConfig *)credentials {
+    AuthenticationConfig *copy = [credentials copy];
+    @synchronized(self.stateLock) {
+        self.credentials = copy;
+    }
+}
+
++ (BOOL)sameIdentity:(AuthenticationConfig *)a as:(AuthenticationConfig *)b {
+    return ARTSameString(a.orgTitle, b.orgTitle) &&
+           ARTSameString(a.environment, b.environment) &&
+           ARTSameString(a.projectKey, b.projectKey) &&
+           ARTSameString(a.clientID, b.clientID);
+}
+
++ (BOOL)usesClientCredentials:(AuthenticationConfig *)credentials {
+    return credentials.clientID.length > 0 && credentials.clientSecret.length > 0;
 }
 
 #pragma mark - Authenticate
@@ -134,26 +209,13 @@ static NSLock *AuthSingletonLock(void) {
         return;
     }
 
-    // Re-read credentials from the getCredentials hook when there is one.
-    CredentialStore *_Nonnull (^getCredentials)(void);
-    @synchronized(self.stateLock) {
-        getCredentials = self.credentials.getCredentials;
-    }
-    if (getCredentials) {
-        CredentialStore *cred = getCredentials();
-        @synchronized(self.stateLock) {
-            self.credentials.accessToken = cred.accessToken;
-            self.credentials.clientID = cred.clientID;
-            self.credentials.clientSecret = cred.clientSecret;
-            self.credentials.orgTitle = cred.orgTitle;
-            self.credentials.environment = cred.environment;
-            self.credentials.projectKey = cred.projectKey;
-        }
-    }
+    [self readCredentialsProvider];
 
     AuthenticationConfig *creds;
+    NSString *refreshToken;
     @synchronized(self.stateLock) {
         creds = [self.credentials copy];
+        refreshToken = self.authData.refreshToken;
     }
 
     if (creds.orgTitle.length == 0 || creds.environment.length == 0 ||
@@ -165,12 +227,17 @@ static NSLock *AuthSingletonLock(void) {
         return;
     }
 
+    // Client credentials renew by authenticating again, never through a
+    // refresh token, even when an older server still returns one.
+    if ([Auth usesClientCredentials:creds]) {
+        [self generateAuthToken:creds completion:completion];
+        return;
+    }
+
     // Use the refresh token while it is still valid.
-    RefreshInfo *refreshInfo =
-        [self getRefreshTokenExpiryInfo:cached.refreshToken];
-    if (!refreshInfo.expired) {
+    if (![self getRefreshTokenExpiryInfo:refreshToken].expired) {
         [self refreshAuthToken:creds
-                  refreshToken:cached.refreshToken
+                  refreshToken:refreshToken
                     completion:completion];
         return;
     }
@@ -178,64 +245,70 @@ static NSLock *AuthSingletonLock(void) {
     [self generateAuthToken:creds completion:completion];
 }
 
+/// Applies the `getCredentials` hook. Tokens issued to another identity are
+/// dropped, so they are never reused or refreshed.
+- (void)readCredentialsProvider {
+    CredentialStore *_Nonnull (^getCredentials)(void);
+    @synchronized(self.stateLock) {
+        getCredentials = self.credentials.getCredentials;
+    }
+    if (!getCredentials) {
+        return;
+    }
+    CredentialStore *cred = getCredentials();
+    @synchronized(self.stateLock) {
+        AuthenticationConfig *next = [self.credentials copy];
+        next.accessToken = cred.accessToken;
+        next.clientID = cred.clientID;
+        next.clientSecret = cred.clientSecret;
+        next.orgTitle = cred.orgTitle;
+        next.environment = cred.environment;
+        next.projectKey = cred.projectKey;
+        if (![Auth sameIdentity:self.credentials as:next]) {
+            self.authData = [[AuthData alloc] init];
+        }
+        self.credentials = next;
+    }
+}
+
 #pragma mark - Generate token
 
 - (void)generateAuthToken:(AuthenticationConfig *)credentials
                completion:(ARTAuthCompletion)completion {
-    if (credentials.accessToken.length == 0) {
-        if (credentials.clientID.length == 0 ||
-            credentials.clientSecret.length == 0) {
-            completion(nil, MakeError(ErrorCodeAuthenticationFailed,
-                                      @"ClientID and ClientSecret are required "
-                                      @"when AccessToken is not present."));
-            return;
-        }
-    }
-
-    NSMutableDictionary<NSString *, NSString *> *headers =
-        [NSMutableDictionary dictionaryWithDictionary:@{
-            @"Client-Id" : credentials.clientID ?: @"",
-            @"Client-Secret" : credentials.clientSecret ?: @"",
-            @"X-Org" : credentials.orgTitle ?: @"",
-            @"Environment" : credentials.environment ?: @"",
-            @"ProjectKey" : credentials.projectKey ?: @"",
-        }];
-    if (credentials.accessToken.length > 0) {
-        headers[@"T-pass"] = credentials.accessToken;
-    }
-    if (credentials.config.authToken) {
-        headers[@"X-pass"] = credentials.config.authToken;
-    }
-
-    NSURL *url = [NSURL
-        URLWithString:[NSString stringWithFormat:@"%@/auth/token",
-                                                 Constant.BASE_URL]];
-    if (!url) {
+    NSString *accessToken = credentials.accessToken ?: @"";
+    BOOL clientCredentials = [Auth usesClientCredentials:credentials];
+    if (accessToken.length == 0 && !clientCredentials) {
         completion(nil, MakeError(ErrorCodeAuthenticationFailed,
-                                  @"Incorrect auth token URL"));
+                                  @"ClientID and ClientSecret required when "
+                                  @"AccessToken is absent"));
         return;
     }
 
-    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
-    req.HTTPMethod = @"POST";
-    for (NSString *key in headers) {
-        [req setValue:headers[key] forHTTPHeaderField:key];
+    NSMutableDictionary<NSString *, NSString *> *headers =
+        [self baseHeaders:credentials];
+    if (clientCredentials) {
+        headers[@"Client-Id"] = credentials.clientID;
+        headers[@"Client-Secret"] = credentials.clientSecret;
+    } else {
+        headers[@"T-pass"] = accessToken;
     }
+    [self addPasscode:headers credentials:credentials];
 
-    NSURLSessionDataTask *task = [ARTHTTPClient.session
-        dataTaskWithRequest:req
-          completionHandler:^(NSData *data, NSURLResponse *response,
-                              NSError *netErr) {
-            if (netErr) {
-                completion(nil, netErr);
-                return;
-            }
-            [self storeTokenResponse:response
-                                    data:data
-                            shapeMessage:@"Unexpected token response shape"
-                              completion:completion];
-          }];
-    [task resume];
+    [self post:@"/auth/token"
+            headers:headers
+               body:nil
+        credentials:credentials
+         completion:^(NSDictionary *data, NSError *error) {
+           if (error) {
+               completion(nil, error);
+               return;
+           }
+           [self store:data
+                       credentials:credentials
+               missingTokenMessage:@"Authentication did not return an access "
+                                   @"token. Please sign in again."
+                        completion:completion];
+         }];
 }
 
 #pragma mark - Refresh token
@@ -243,38 +316,96 @@ static NSLock *AuthSingletonLock(void) {
 - (void)refreshAuthToken:(AuthenticationConfig *)credentials
             refreshToken:(NSString *)refreshToken
               completion:(ARTAuthCompletion)completion {
-    if (credentials.accessToken.length == 0 &&
-        credentials.clientID.length == 0) {
-        completion(nil,
-                   MakeError(ErrorCodeAuthenticationFailed,
-                             @"ClientID is required when AccessToken is not "
-                             @"present."));
+    NSString *accessToken = credentials.accessToken ?: @"";
+    if (accessToken.length == 0 && credentials.clientID.length == 0) {
+        completion(nil, MakeError(ErrorCodeAuthenticationFailed,
+                                  @"ClientID required when AccessToken is absent"));
         return;
     }
 
     NSMutableDictionary<NSString *, NSString *> *headers =
-        [NSMutableDictionary dictionaryWithDictionary:@{
-            @"X-Org" : credentials.orgTitle ?: @"",
-            @"Environment" : credentials.environment ?: @"",
-            @"ProjectKey" : credentials.projectKey ?: @"",
-        }];
-    // Client-Id and the passcode / auth token go out on refresh too.
+        [self baseHeaders:credentials];
     if (credentials.clientID.length > 0) {
         headers[@"Client-Id"] = credentials.clientID;
     }
-    if (credentials.accessToken.length > 0) {
-        headers[@"T-pass"] = credentials.accessToken;
+    if (accessToken.length > 0) {
+        headers[@"T-pass"] = accessToken;
     }
-    if (credentials.config.authToken) {
+    [self addPasscode:headers credentials:credentials];
+
+    [self post:@"/auth/token/refresh"
+            headers:headers
+               body:@{@"refresh_token" : refreshToken ?: @""}
+        credentials:credentials
+         completion:^(NSDictionary *data, NSError *error) {
+           if (error) {
+               completion(nil, error);
+               return;
+           }
+           [self store:data
+                       credentials:credentials
+               missingTokenMessage:@"Authentication refresh did not return an "
+                                   @"access token. Please sign in again."
+                        completion:completion];
+         }];
+}
+
+- (NSMutableDictionary<NSString *, NSString *> *)baseHeaders:
+    (AuthenticationConfig *)credentials {
+    return [@{
+        @"Content-Type" : @"application/json",
+        @"X-Org" : credentials.orgTitle ?: @"",
+        @"Environment" : credentials.environment ?: @"",
+        @"ProjectKey" : credentials.projectKey ?: @"",
+    } mutableCopy];
+}
+
+- (void)addPasscode:(NSMutableDictionary<NSString *, NSString *> *)headers
+        credentials:(AuthenticationConfig *)credentials {
+    if (credentials.config.authToken.length > 0) {
         headers[@"X-pass"] = credentials.config.authToken;
     }
+}
 
+/// Stores the tokens in `data`; fails with `missingTokenMessage` when it
+/// holds no access token.
+- (void)store:(NSDictionary *)data
+            credentials:(AuthenticationConfig *)credentials
+    missingTokenMessage:(NSString *)missingTokenMessage
+             completion:(ARTAuthCompletion)completion {
+    id access = data[@"access_token"];
+    if (![access isKindOfClass:[NSString class]] || [(NSString *)access length] == 0) {
+        completion(nil, MakeError(ErrorCodeAuthenticationFailed, missingTokenMessage));
+        return;
+    }
+    id refresh = data[@"refresh_token"];
+    AuthData *fresh = [[AuthData alloc]
+        initWithAccessToken:access
+               refreshToken:(![Auth usesClientCredentials:credentials] &&
+                             [refresh isKindOfClass:[NSString class]])
+                                ? refresh
+                                : @""];
+    @synchronized(self.stateLock) {
+        self.authData = fresh;
+    }
+    completion(fresh, nil);
+}
+
+#pragma mark - HTTP
+
+/// Sends an auth request and completes with the `data` object of its
+/// response. Gives up after `AdkConfig.connectionTimeoutMs` (30 seconds by
+/// default).
+- (void)post:(NSString *)path
+        headers:(NSDictionary<NSString *, NSString *> *)headers
+           body:(nullable NSDictionary *)body
+    credentials:(AuthenticationConfig *)credentials
+     completion:(void (^)(NSDictionary *_Nullable data,
+                          NSError *_Nullable error))completion {
     NSURL *url = [NSURL
-        URLWithString:[NSString stringWithFormat:@"%@/auth/token/refresh",
-                                                 Constant.BASE_URL]];
+        URLWithString:[NSString stringWithFormat:@"%@%@", Constant.BASE_URL, path]];
     if (!url) {
-        completion(nil, MakeError(ErrorCodeAuthenticationFailed,
-                                  @"Incorrect auth refresh URL"));
+        completion(nil, MakeError(ErrorCodeAuthenticationFailed, @"Malformed auth URL"));
         return;
     }
 
@@ -283,72 +414,88 @@ static NSLock *AuthSingletonLock(void) {
     for (NSString *key in headers) {
         [req setValue:headers[key] forHTTPHeaderField:key];
     }
-    [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    req.HTTPBody = [[ARTJSON stringify:@{@"refresh_token" : refreshToken ?: @""}
-                                 error:nil]
-        dataUsingEncoding:NSUTF8StringEncoding];
+    if (body) {
+        req.HTTPBody = [[ARTJSON stringify:body error:nil]
+            dataUsingEncoding:NSUTF8StringEncoding];
+    }
 
-    NSURLSessionDataTask *task = [ARTHTTPClient.session
-        dataTaskWithRequest:req
-          completionHandler:^(NSData *data, NSURLResponse *response,
-                              NSError *netErr) {
-            if (netErr) {
-                completion(nil, netErr);
-                return;
-            }
+    NSInteger timeoutMs =
+        credentials.config ? credentials.config.connectionTimeoutMs : 30000;
+    [ARTHTTPClient
+        sendRequest:req
+          timeoutMs:timeoutMs
+       timeoutError:^NSError * {
+         return MakeError(ErrorCodeAuthenticationFailed,
+                          @"Authentication timed out. Please check your "
+                          @"connection and sign in again.");
+       }
+         completion:^(NSData *data, NSURLResponse *response, NSError *error) {
+           if (error) {
+               if ([error.domain isEqualToString:ErrorDomain]) {
+                   completion(nil, error);
+                   return;
+               }
+               NSMutableDictionary *userInfo = [NSMutableDictionary dictionary];
+               userInfo[NSLocalizedDescriptionKey] = error.localizedDescription;
+               userInfo[NSUnderlyingErrorKey] = error;
+               completion(nil, [NSError errorWithDomain:ErrorDomain
+                                                   code:ErrorCodeAuthenticationFailed
+                                               userInfo:userInfo]);
+               return;
+           }
 
-            // The gateway has no socket backend: keep the current tokens.
-            if ([response isKindOfClass:[NSHTTPURLResponse class]] &&
-                ((NSHTTPURLResponse *)response).statusCode == 500) {
-                id body = [ARTJSON parseData:data];
-                id errMsg = [body isKindOfClass:[NSDictionary class]]
-                                ? ((NSDictionary *)body)[@"error"]
-                                : nil;
-                if ([errMsg isKindOfClass:[NSString class]] &&
-                    [errMsg isEqualToString:@"Failed to get WebSocket backend"]) {
-                    completion(nil, MakeError(ErrorCodeServerError, errMsg));
-                    return;
-                }
-            }
-
-            [self storeTokenResponse:response
-                                data:data
-                        shapeMessage:@"Unexpected refresh response shape"
-                              completion:completion];
-          }];
-    [task resume];
+           id json = [ARTJSON parseData:data];
+           NSDictionary *object =
+               [json isKindOfClass:[NSDictionary class]] ? json : nil;
+           NSHTTPURLResponse *http =
+               [response isKindOfClass:[NSHTTPURLResponse class]]
+                   ? (NSHTTPURLResponse *)response
+                   : nil;
+           if (http && (http.statusCode < 200 || http.statusCode >= 300)) {
+               // Keep both tokens: the gateway only lacked a WebSocket backend.
+               id message = object[@"error"];
+               if ([path hasSuffix:@"/refresh"] && http.statusCode == 500 &&
+                   [message isKindOfClass:[NSString class]] &&
+                   [message isEqualToString:@"Failed to get WebSocket backend"]) {
+                   completion(nil, MakeError(ErrorCodeServerError, message));
+                   return;
+               }
+               completion(nil,
+                          [ARTAuthHttpError
+                              errorWithMessage:[Auth errorMessage:object]
+                                                   ?: [Auth statusText:http.statusCode]
+                                        status:http.statusCode
+                                          body:json]);
+               return;
+           }
+           if (!object) {
+               completion(nil,
+                          MakeError(ErrorCodeAuthenticationFailed,
+                                    [NSString stringWithFormat:
+                                                  @"Unexpected response from %@",
+                                                  path]));
+               return;
+           }
+           id tokenData = object[@"data"];
+           completion([tokenData isKindOfClass:[NSDictionary class]] ? tokenData : @{},
+                      nil);
+         }];
 }
 
-/// Validates a token response and stores the new token pair.
-- (void)storeTokenResponse:(NSURLResponse *)response
-                      data:(NSData *)data
-              shapeMessage:(NSString *)shapeMessage
-                completion:(ARTAuthCompletion)completion {
-    NSError *validateErr = nil;
-    if (![self validateHTTPResponse:response data:data error:&validateErr]) {
-        completion(nil, validateErr);
-        return;
++ (nullable NSString *)errorMessage:(nullable NSDictionary *)object {
+    for (NSString *key in @[ @"message", @"error" ]) {
+        id value = object[key];
+        if ([value isKindOfClass:[NSString class]] && [(NSString *)value length] > 0) {
+            return value;
+        }
     }
+    return nil;
+}
 
-    id json = [ARTJSON parseData:data];
-    NSDictionary *tokenData = [json isKindOfClass:[NSDictionary class]]
-                                  ? ((NSDictionary *)json)[@"data"]
-                                  : nil;
-    if (![tokenData isKindOfClass:[NSDictionary class]]) {
-        completion(nil, MakeError(ErrorCodeAuthenticationFailed, shapeMessage));
-        return;
-    }
-
-    id access = tokenData[@"access_token"];
-    id refresh = tokenData[@"refresh_token"];
-    AuthData *fresh = [[AuthData alloc]
-        initWithAccessToken:[access isKindOfClass:[NSString class]] ? access : @""
-               refreshToken:[refresh isKindOfClass:[NSString class]] ? refresh
-                                                                      : @""];
-    @synchronized(self.stateLock) {
-        self.authData = fresh;
-    }
-    completion(fresh, nil);
++ (NSString *)statusText:(NSInteger)status {
+    return [NSString
+        stringWithFormat:@"HTTP %ld %@", (long)status,
+                         [NSHTTPURLResponse localizedStringForStatusCode:status]];
 }
 
 #pragma mark - Getters
@@ -431,32 +578,6 @@ static NSLock *AuthSingletonLock(void) {
     info.exp = @(exp);
     info.remaining = exp - now;
     return info;
-}
-
-#pragma mark - HTTP helper
-
-- (BOOL)validateHTTPResponse:(NSURLResponse *)response
-                        data:(NSData *)data
-                       error:(NSError **)error {
-    if (![response isKindOfClass:[NSHTTPURLResponse class]]) {
-        return YES;
-    }
-    NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
-    if (http.statusCode >= 200 && http.statusCode < 300) {
-        return YES;
-    }
-
-    id body = [ARTJSON parseData:data];
-    id msg = [body isKindOfClass:[NSDictionary class]]
-                 ? ((NSDictionary *)body)[@"message"]
-                 : nil;
-    if (![msg isKindOfClass:[NSString class]] || [msg length] == 0) {
-        msg = [NSHTTPURLResponse localizedStringForStatusCode:http.statusCode];
-    }
-    if (error) {
-        *error = MakeError(ErrorCodeAuthenticationFailed, msg);
-    }
-    return NO;
 }
 
 @end

@@ -16,12 +16,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark - ARTConfigType
 
-/// Storage group type (`config_type`). Any server value can be used.
+/// Storage file category (`config_type`). Only `media` is supported.
 typedef NSString *ARTConfigType NS_TYPED_EXTENSIBLE_ENUM;
 /// `media`, the default.
 FOUNDATION_EXPORT ARTConfigType const ARTConfigTypeMedia;
 /// `knowledge_base`.
-FOUNDATION_EXPORT ARTConfigType const ARTConfigTypeKnowledgeBase;
+FOUNDATION_EXPORT ARTConfigType const ARTConfigTypeKnowledgeBase
+    __attribute__((deprecated("Storage only holds media files.")));
 
 #pragma mark - ARTFileRef
 
@@ -90,57 +91,81 @@ FOUNDATION_EXPORT ARTConfigType const ARTConfigTypeKnowledgeBase;
 
 @end
 
-#pragma mark - ARTFileMeta
+#pragma mark - ARTMediaRef
 
-/// An uploaded file attached to a message, sent as an entry of the frame's
-/// top-level `file_meta` array (`{ "id": ..., "scope": [...] }`).
+/// A file an agent request refers to, sent as an entry of the frame's
+/// top-level `file_meta` array
+/// (`{ "id": ..., "name": ..., "content_type": ... }`).
 ///
-/// `scope` lists the config ids (for example agent ids) allowed to read the
-/// file for this message. Empty means only the owner can.
-@interface ARTFileMeta : NSObject <NSCopying>
+/// Build one from an upload result with `+mediaRefWithFileRef:`.
+@interface ARTMediaRef : NSObject <NSCopying>
 
+/// Storage id of the file.
 @property(nonatomic, copy, readonly) NSString *fileId;
-@property(nonatomic, copy, readonly) NSArray<NSString *> *scope;
+/// File name.
+@property(nonatomic, copy, readonly) NSString *name;
+/// MIME type of the file.
+@property(nonatomic, copy, readonly) NSString *contentType;
 
 - (instancetype)initWithFileId:(NSString *)fileId
-                         scope:(nullable NSArray<NSString *> *)scope
-    NS_DESIGNATED_INITIALIZER;
-/// Attaches an uploaded file.
-- (instancetype)initWithFileRef:(ARTFileRef *)fileRef
-                          scope:(nullable NSArray<NSString *> *)scope;
-+ (instancetype)fileMetaWithFileRef:(ARTFileRef *)fileRef;
+                          name:(NSString *)name
+                   contentType:(NSString *)contentType NS_DESIGNATED_INITIALIZER;
+/// Refers to an uploaded file.
+- (instancetype)initWithFileRef:(ARTFileRef *)fileRef;
++ (instancetype)mediaRefWithFileRef:(ARTFileRef *)fileRef;
 - (instancetype)init NS_UNAVAILABLE;
 
-/// The wire form: `{ "id": fileId, "scope": [...] }`.
+/// Former name of `+mediaRefWithFileRef:`.
++ (instancetype)fileMetaWithFileRef:(ARTFileRef *)fileRef
+    __attribute__((deprecated("Use +mediaRefWithFileRef:.")));
+/// `scope` is ignored: access follows the owning configuration and thread.
+- (instancetype)initWithFileRef:(ARTFileRef *)fileRef
+                          scope:(nullable NSArray<NSString *> *)scope
+    __attribute__((deprecated("Use -initWithFileRef:. Access follows the owning "
+                              "configuration and thread.")));
+
+/// The wire form: `{ "id": fileId, "name": name, "content_type": contentType }`.
 - (NSDictionary<NSString *, id> *)JSONObject;
 
 @end
+
+/// Former name of `ARTMediaRef`.
+typedef ARTMediaRef ARTFileMeta __attribute__((deprecated("Use ARTMediaRef.")));
 
 #pragma mark - ARTUploadOptions
 
 /// Options for uploads.
 ///
-/// Scoped uploads (`Agent`, `AgentThread`, `Orchestrator`,
-/// `OrchestratorThread`, `Subscription`) always replace `configId` with
-/// their own id.
+/// Uploads are temporary media scoped to a conversation thread, so
+/// `threadId` is required; the thread-level upload helpers set it. Scoped
+/// uploads (`Agent`, `AgentThread`, `Orchestrator`, `OrchestratorThread`,
+/// `Subscription`) always set `configId` to their channel's configuration.
 @interface ARTUploadOptions : NSObject <NSCopying>
 
 /// File name sent to storage. Defaults to the file URL's last path
 /// component (or the `filename` argument), else `upload.bin`.
 @property(nonatomic, copy, nullable) NSString *filename;
-/// Storage group type. Defaults to `ARTConfigTypeMedia`.
+/// Storage file category. Only `ARTConfigTypeMedia` is supported.
 @property(nonatomic, copy, nullable) ARTConfigType configType;
-/// Owning config id. Defaults to the project key for `-[Adk upload...]`.
+/// Configuration that owns the file. Defaults to the project key for
+/// `-[Adk upload...]`.
 @property(nonatomic, copy, nullable) NSString *configId;
-/// Config ids granted access to the file. Empty means only the owner.
-@property(nonatomic, copy) NSArray<NSString *> *scopes;
-/// Optional expiry, in seconds.
+/// Thread the file belongs to. Required.
+@property(nonatomic, copy, nullable) NSString *threadId;
+/// No longer used: access follows the owning configuration and thread.
+@property(nonatomic, copy) NSArray<NSString *> *scopes
+    __attribute__((deprecated("Uploads are scoped to their thread; scopes are "
+                              "ignored.")));
+/// Time-to-live for the uploaded file, in seconds.
 @property(nonatomic, strong, nullable) NSNumber *ttlSeconds;
+/// MIME types the server should accept for this upload.
+@property(nonatomic, copy, nullable) NSArray<NSString *> *allowedMimeTypes;
 /// Per-request timeout in milliseconds. The upload itself defaults to
 /// 60 000.
 @property(nonatomic, strong, nullable) NSNumber *timeoutMs;
-/// Upload progress, 0 to 1, for the transfer step. Called on a background
-/// queue.
+/// Upload progress from 0 to 1: 0 when the upload starts, fractions while
+/// the bytes are sent, and 1 once the server has stored the file. Called on
+/// a background queue.
 @property(nonatomic, copy, nullable) void (^progress)(double fraction);
 
 @end
@@ -148,12 +173,21 @@ FOUNDATION_EXPORT ARTConfigType const ARTConfigTypeKnowledgeBase;
 #pragma mark - ARTListOptions
 
 /// Filters for `listFiles`.
+///
+/// Files are listed per thread, so `threadId` is required; the thread-level
+/// list helpers set it.
 @interface ARTListOptions : NSObject <NSCopying>
 
+/// Storage file category. Only `ARTConfigTypeMedia` is supported.
 @property(nonatomic, copy, nullable) ARTConfigType configType;
-/// Storage group to list. Scoped calls set it for you.
+/// List the files this configuration can access. Defaults to the project
+/// key; scoped calls set it for you.
 @property(nonatomic, copy, nullable) NSString *configId;
+/// Thread whose files are listed. Required.
+@property(nonatomic, copy, nullable) NSString *threadId;
+/// Page number (1-based).
 @property(nonatomic, strong, nullable) NSNumber *page;
+/// Maximum files per page.
 @property(nonatomic, strong, nullable) NSNumber *limit;
 
 @end
@@ -162,26 +196,29 @@ FOUNDATION_EXPORT ARTConfigType const ARTConfigTypeKnowledgeBase;
 
 /// Domain of storage errors. The error code is the `ARTUploadStep` that
 /// failed; `userInfo[ARTHTTPStatusCodeKey]` holds the HTTP status when the
-/// failure was an HTTP response (a 403 on `ARTUploadStepSignedURL` means
-/// the tenant role has no storage permission).
+/// failure was an HTTP response (a 403 means the tenant role has no storage
+/// permission).
 FOUNDATION_EXPORT NSErrorDomain const ARTUploadErrorDomain;
 
-/// `userInfo` key with the failed step's wire name, e.g. `signed-url`.
+/// `userInfo` key with the failed step's wire name, e.g. `upload`.
 FOUNDATION_EXPORT NSErrorUserInfoKey const ARTUploadStepNameKey;
 
 /// Storage step that failed.
 typedef NS_ERROR_ENUM(ARTUploadErrorDomain, ARTUploadStep){
     ARTUploadStepValidate = 1,
-    ARTUploadStepSignedURL,
-    ARTUploadStepPut,
-    ARTUploadStepConfirm,
+    /// No longer reported: an upload is a single request.
+    ARTUploadStepSignedURL __attribute__((deprecated("Use ARTUploadStepUpload."))),
+    /// No longer reported: an upload is a single request.
+    ARTUploadStepPut __attribute__((deprecated("Use ARTUploadStepUpload."))),
+    /// No longer reported: an upload is a single request.
+    ARTUploadStepConfirm __attribute__((deprecated("Use ARTUploadStepUpload."))),
     ARTUploadStepList,
     ARTUploadStepGet,
     ARTUploadStepDelete,
+    ARTUploadStepUpload,
 };
 
-/// The step's wire name: `validate`, `signed-url`, `put`, `confirm`, `list`,
-/// `get` or `delete`.
+/// The step's wire name: `validate`, `upload`, `list`, `get` or `delete`.
 FOUNDATION_EXPORT NSString *ARTUploadStepName(ARTUploadStep step);
 
 NS_ASSUME_NONNULL_END
