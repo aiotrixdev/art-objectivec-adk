@@ -34,6 +34,28 @@ typedef void (^ARTSubscriptionWaiter)(Subscription *_Nullable, NSError *_Nullabl
 }
 
 - (void)getSubscription:(ARTSubscriptionWaiter)completion {
+    [self.socket wait:^(NSError *_Nullable waitError) {
+      if (waitError) {
+          completion(nil, waitError);
+          return;
+      }
+      [self subscribeIfNeeded:completion];
+    }];
+}
+
+- (void)configurationId:(void (^)(NSString *_Nullable, NSError *_Nullable))completion {
+    [self getSubscription:^(Subscription *sub, NSError *error) {
+      if (!sub) {
+          completion(nil, error);
+          return;
+      }
+      NSError *configurationError = nil;
+      NSString *configurationId = [sub configurationId:&configurationError];
+      completion(configurationId, configurationError);
+    }];
+}
+
+- (void)subscribeIfNeeded:(ARTSubscriptionWaiter)completion {
     [self.lock lock];
     if (self.subscription) {
         Subscription *sub = self.subscription;
@@ -51,14 +73,9 @@ typedef void (^ARTSubscriptionWaiter)(Subscription *_Nullable, NSError *_Nullabl
     [self.lock unlock];
 
     NSString *channel = [self channelName];
-    __weak typeof(self) weakSelf = self;
     [self.socket
         subscribe:channel
        completion:^(BaseSubscription *_Nullable raw, NSError *_Nullable error) {
-         __strong typeof(weakSelf) strongSelf = weakSelf;
-         if (!strongSelf) {
-             return;
-         }
          Subscription *typed = [raw isKindOfClass:[Subscription class]]
                                    ? (Subscription *)raw
                                    : nil;
@@ -77,14 +94,14 @@ typedef void (^ARTSubscriptionWaiter)(Subscription *_Nullable, NSError *_Nullabl
          }
 
          NSArray<ARTSubscriptionWaiter> *pending;
-         [strongSelf.lock lock];
+         [self.lock lock];
          if (typed && !error) {
-             strongSelf.subscription = typed;
+             self.subscription = typed;
          }
-         strongSelf.subscribing = NO;
-         pending = [strongSelf.waiters copy];
-         [strongSelf.waiters removeAllObjects];
-         [strongSelf.lock unlock];
+         self.subscribing = NO;
+         pending = [self.waiters copy];
+         [self.waiters removeAllObjects];
+         [self.lock unlock];
 
          for (ARTSubscriptionWaiter waiter in pending) {
              waiter(typed, typed ? nil : outErr);

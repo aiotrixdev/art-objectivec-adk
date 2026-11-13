@@ -11,10 +11,14 @@ ARTConfigType const ARTConfigTypeKnowledgeBase = @"knowledge_base";
 NSErrorDomain const ARTUploadErrorDomain = @"com.art.adk.storage";
 NSErrorUserInfoKey const ARTUploadStepNameKey = @"ARTUploadStepName";
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 NSString *ARTUploadStepName(ARTUploadStep step) {
     switch (step) {
     case ARTUploadStepValidate:
         return @"validate";
+    case ARTUploadStepUpload:
+        return @"upload";
     case ARTUploadStepSignedURL:
         return @"signed-url";
     case ARTUploadStepPut:
@@ -30,6 +34,7 @@ NSString *ARTUploadStepName(ARTUploadStep step) {
     }
     return @"validate";
 }
+#pragma clang diagnostic pop
 
 #pragma mark - ARTFileRef
 
@@ -158,29 +163,46 @@ NSString *ARTUploadStepName(ARTUploadStep step) {
 
 @end
 
-#pragma mark - ARTFileMeta
+#pragma mark - ARTMediaRef
 
-@implementation ARTFileMeta
+@implementation ARTMediaRef
 
-- (instancetype)initWithFileId:(NSString *)fileId scope:(NSArray<NSString *> *)scope {
+- (instancetype)initWithFileId:(NSString *)fileId
+                          name:(NSString *)name
+                   contentType:(NSString *)contentType {
     self = [super init];
     if (self) {
         _fileId = [fileId copy];
-        _scope = [scope copy] ?: @[];
+        _name = [name copy];
+        _contentType = [contentType copy];
     }
     return self;
 }
 
-- (instancetype)initWithFileRef:(ARTFileRef *)fileRef scope:(NSArray<NSString *> *)scope {
-    return [self initWithFileId:fileRef.fileId scope:scope];
+- (instancetype)initWithFileRef:(ARTFileRef *)fileRef {
+    return [self initWithFileId:fileRef.fileId
+                           name:fileRef.name
+                    contentType:fileRef.contentType];
+}
+
++ (instancetype)mediaRefWithFileRef:(ARTFileRef *)fileRef {
+    return [[self alloc] initWithFileRef:fileRef];
 }
 
 + (instancetype)fileMetaWithFileRef:(ARTFileRef *)fileRef {
-    return [[self alloc] initWithFileRef:fileRef scope:nil];
+    return [self mediaRefWithFileRef:fileRef];
+}
+
+- (instancetype)initWithFileRef:(ARTFileRef *)fileRef scope:(NSArray<NSString *> *)scope {
+    return [self initWithFileRef:fileRef];
 }
 
 - (NSDictionary<NSString *, id> *)JSONObject {
-    return @{@"id" : self.fileId ?: @"", @"scope" : self.scope ?: @[]};
+    return @{
+        @"id" : self.fileId ?: @"",
+        @"name" : self.name ?: @"",
+        @"content_type" : self.contentType ?: @""
+    };
 }
 
 - (id)copyWithZone:(NSZone *)zone {
@@ -191,12 +213,13 @@ NSString *ARTUploadStepName(ARTUploadStep step) {
     if (self == object) {
         return YES;
     }
-    if (![object isKindOfClass:[ARTFileMeta class]]) {
+    if (![object isKindOfClass:[ARTMediaRef class]]) {
         return NO;
     }
-    ARTFileMeta *other = object;
+    ARTMediaRef *other = object;
     return [self.fileId isEqualToString:other.fileId] &&
-           [self.scope isEqualToArray:other.scope];
+           [self.name isEqualToString:other.name] &&
+           [self.contentType isEqualToString:other.contentType];
 }
 
 - (NSUInteger)hash {
@@ -204,8 +227,8 @@ NSString *ARTUploadStepName(ARTUploadStep step) {
 }
 
 - (NSString *)description {
-    return [NSString stringWithFormat:@"<ARTFileMeta %@ scope=%@>", self.fileId,
-                                      self.scope];
+    return [NSString stringWithFormat:@"<ARTMediaRef %@ \"%@\" %@>", self.fileId,
+                                      self.name, self.contentType];
 }
 
 @end
@@ -213,6 +236,11 @@ NSString *ARTUploadStepName(ARTUploadStep step) {
 #pragma mark - ARTUploadOptions
 
 @implementation ARTUploadOptions
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-implementations"
+@synthesize scopes = _scopes;
+#pragma clang diagnostic pop
 
 - (instancetype)init {
     self = [super init];
@@ -222,17 +250,26 @@ NSString *ARTUploadStepName(ARTUploadStep step) {
     return self;
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-implementations"
+- (NSArray<NSString *> *)scopes {
+    return _scopes;
+}
+
 - (void)setScopes:(NSArray<NSString *> *)scopes {
     _scopes = [scopes copy] ?: @[];
 }
+#pragma clang diagnostic pop
 
 - (id)copyWithZone:(NSZone *)zone {
     ARTUploadOptions *copy = [[ARTUploadOptions allocWithZone:zone] init];
     copy.filename = self.filename;
     copy.configType = self.configType;
     copy.configId = self.configId;
-    copy.scopes = self.scopes;
+    copy.threadId = self.threadId;
+    copy->_scopes = _scopes;
     copy.ttlSeconds = self.ttlSeconds;
+    copy.allowedMimeTypes = self.allowedMimeTypes;
     copy.timeoutMs = self.timeoutMs;
     copy.progress = self.progress;
     return copy;
@@ -248,6 +285,7 @@ NSString *ARTUploadStepName(ARTUploadStep step) {
     ARTListOptions *copy = [[ARTListOptions allocWithZone:zone] init];
     copy.configType = self.configType;
     copy.configId = self.configId;
+    copy.threadId = self.threadId;
     copy.page = self.page;
     copy.limit = self.limit;
     return copy;

@@ -55,6 +55,7 @@
 
 // Agentic
 #import <ArtAdk/Agentic/AgentEvents.h>
+#import <ArtAdk/Agentic/ARTExecutionReference.h>
 #import <ArtAdk/Agentic/BaseWorkflow.h>
 #import <ArtAdk/Agentic/Agent.h>
 #import <ArtAdk/Agentic/AgentThread.h>

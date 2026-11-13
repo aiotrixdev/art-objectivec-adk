@@ -25,7 +25,12 @@ typedef NS_ENUM(NSInteger, ErrorCode) {
     ErrorCodeTimeout,
     ErrorCodeServerError,
     ErrorCodeChannelNotFound,
+    /// No longer reported: a missing acknowledgement is now an
+    /// `ARTConnectionError` with code `ARTConnectionErrorCodeAckTimeout`.
     ErrorCodeAckTimeout,
+    /// A value passed to the SDK is not valid, for example an agent id that
+    /// is not a lowercase slug.
+    ErrorCodeInvalidArgument,
 };
 
 NSError *MakeError(ErrorCode code, NSString *message);

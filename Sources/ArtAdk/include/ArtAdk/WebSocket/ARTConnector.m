@@ -176,7 +176,11 @@ static NSError *ARTConnectorError(NSString *message) {
         payload[@"metadata"] = metadata;
     }
 
-    [handler wait:^{
+    [handler wait:^(NSError *_Nullable waitError) {
+      if (waitError) {
+          completion(nil, waitError);
+          return;
+      }
       [handler
           pushForSecureLine:@"connector-profile"
                        data:payload

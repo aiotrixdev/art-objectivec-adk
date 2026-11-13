@@ -24,10 +24,19 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface Agent : BaseWorkflow
 
-/// The server-side agent identifier (channel is `agent_com_<agentId>`).
+/// The agent's slug, optionally with `@buildname` (channel is
+/// `agent_com_<agentId>`).
 @property(nonatomic, copy, readonly) NSString *agentId;
 
-- (instancetype)initWithAgentId:(NSString *)agentId socket:(Socket *)socket;
+/// Creates an Agent bound to `socket`.
+///
+/// `agentId` is the agent's slug, optionally pinned to a named build
+/// (`my-agent@release2`). Returns nil and sets `error`
+/// (`ErrorCodeInvalidArgument`) for anything else; see
+/// `ARTValidateExecutionReference`.
+- (nullable instancetype)initWithAgentId:(NSString *)agentId
+                                  socket:(Socket *)socket
+                                   error:(NSError **)error;
 
 /// Returns a new AgentThread backed by this agent. Each call returns a fresh
 /// thread with its own id; one agent may host many concurrent threads.
@@ -40,8 +49,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark - Storage (agent-scoped)
 
-/// Uploads a local file scoped to this agent: `configId` is always the
-/// agent id, whatever `options` contains.
+/// Uploads a local file owned by this agent's channel configuration,
+/// whatever `options.configId` contains. `options.threadId` is required;
+/// `-[AgentThread uploadFileURL:options:completion:]` sets it.
 - (void)uploadFileURL:(NSURL *)fileURL
               options:(nullable ARTUploadOptions *)options
            completion:(void (^)(ARTFileRef *_Nullable fileRef,
@@ -55,7 +65,9 @@ NS_ASSUME_NONNULL_BEGIN
         completion:(void (^)(ARTFileRef *_Nullable fileRef,
                              NSError *_Nullable error))completion;
 
-/// Lists files scoped to this agent.
+/// Lists the files this agent's channel configuration can access in
+/// `options.threadId` (required;
+/// `-[AgentThread listFilesWithOptions:completion:]` sets it).
 - (void)listFilesWithOptions:(nullable ARTListOptions *)options
                   completion:(void (^)(ARTStorageFileList *_Nullable list,
                                        NSError *_Nullable error))completion;

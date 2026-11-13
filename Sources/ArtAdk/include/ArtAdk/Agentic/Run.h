@@ -22,8 +22,9 @@ NS_ASSUME_NONNULL_BEGIN
 @class AgentEventEnvelope;
 
 /// Resolution of a Run — exactly one of `output` / `error` is non-nil. A
-/// superseded/closed run resolves with an AgentError whose code is
-/// `RUN_SUPERSEDED`.
+/// superseded run resolves with an AgentError whose code is `RUN_SUPERSEDED`;
+/// a run whose thread was disposed, or whose request could not be sent, with
+/// `RUN_CLOSED`.
 typedef void (^RunDoneHandler)(AgentOutput *_Nullable output,
                                AgentError *_Nullable error);
 
@@ -51,6 +52,9 @@ typedef void (^RunDoneHandler)(AgentOutput *_Nullable output,
 - (void)setRefId:(NSString *)refId;
 - (void)pushEnvelope:(AgentEventEnvelope *)envelope;
 - (void)close:(NSString *)reason;
+/// Ends the run with a `RUN_CLOSED` error: its thread was disposed or its
+/// request could not be sent.
+- (void)abort:(NSString *)reason;
 
 @end
 

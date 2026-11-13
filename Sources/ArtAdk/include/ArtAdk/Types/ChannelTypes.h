@@ -25,6 +25,10 @@ NS_ASSUME_NONNULL_BEGIN
 /// storage; `Orchestrator` bypasses it via `threadUnchecked:`. Defaults
 /// to NO.
 @property(nonatomic, assign) BOOL orchestratorEnabled;
+/// Server-side configuration behind the channel (for example the agent or
+/// orchestrator). Storage uses it as the owner of uploaded files. nil for
+/// local channels.
+@property(nonatomic, copy, nullable) NSString *configurationID;
 
 - (instancetype)initWithChannelName:(NSString *)channelName;
 - (instancetype)initWithChannelName:(NSString *)channelName

@@ -20,6 +20,7 @@
 @property(nonatomic, strong) NSMutableArray<NSUUID *> *traceTokens;
 @property(nonatomic, strong, nullable) NSUUID *stateBindToken;
 @property(nonatomic, assign) BOOL stateBindPending;
+@property(nonatomic, strong, nullable) NSUUID *connectionListenerId;
 @property(nonatomic, assign, readwrite, getter=isDisposed) BOOL disposed;
 @property(nonatomic, strong) ARTThreadStateStore *stateStore;
 @end
@@ -37,8 +38,58 @@
         _disposed = NO;
         _stateStore = [[ARTThreadStateStore alloc] initWithThreadId:_threadId
                                                    enforcesSequence:NO];
+        __weak typeof(self) weakSelf = self;
+        _connectionListenerId =
+            [subscription onConnectionFailure:^(ARTConnectionError *error) {
+              [weakSelf handleConnectionFailure:error];
+            }];
     }
     return self;
+}
+
+/// Fails a request in progress when the connection fails: the state becomes
+/// `failed` (source `client`) and `listen:` callbacks get an `agent_error`
+/// whose details carry `source: connection` and `execution_status: unknown`,
+/// since the client can no longer tell whether the server finished the
+/// execution.
+- (void)handleConnectionFailure:(ARTConnectionError *)error {
+    if (self.isDisposed) {
+        return;
+    }
+    ARTThreadStatePhase phase = self.stateStore.state.phase;
+    if ([phase isEqualToString:ARTThreadStatePhaseIdle] ||
+        [phase isEqualToString:ARTThreadStatePhaseCompleted] ||
+        [phase isEqualToString:ARTThreadStatePhaseFailed] ||
+        [phase isEqualToString:ARTThreadStatePhaseCancelled]) {
+        return;
+    }
+    [self.stateStore transition:ARTThreadStatePhaseFailed
+                         source:ARTThreadStateSourceClient
+                        message:@"Connection unavailable"
+                         reason:error.message
+                    workspaceId:nil
+                        agentId:nil];
+    NSMutableDictionary *details = [@{
+        @"source" : @"connection",
+        @"execution_status" : @"unknown",
+        @"reason" : error.message,
+    } mutableCopy];
+    if (error.status) {
+        details[@"status"] = error.status;
+    }
+    [self.subscription.emitter
+        emit:[NSString stringWithFormat:@"%@-all", self.threadId]
+        data:@{
+            @"event" : @"agent_error",
+            @"content" : @{
+                @"type" : @"agent_error_response",
+                @"status" : @"error",
+                @"code" : error.connectionCode,
+                @"message" : error.message,
+                @"thread_id" : self.threadId,
+                @"details" : details,
+            },
+        }];
 }
 
 - (BOOL)isDisposed {
@@ -101,6 +152,16 @@
                        data:data
                     options:merged
                  completion:^(NSError *_Nullable pushError) {
+                   if ([pushError isKindOfClass:[ARTConnectionError class]]) {
+                       [self handleConnectionFailure:(ARTConnectionError *)pushError];
+                   } else if (pushError) {
+                       [self.stateStore transition:ARTThreadStatePhaseFailed
+                                            source:ARTThreadStateSourceClient
+                                           message:@"Request could not be sent"
+                                            reason:pushError.localizedDescription
+                                       workspaceId:nil
+                                           agentId:nil];
+                   }
                    if (completion) {
                        completion(pushError);
                    }
@@ -109,17 +170,32 @@
 
 #pragma mark - Storage (thread-scoped)
 
+/// The configuration that owns this thread's files, or nil and an error once
+/// the thread is disposed or when the server did not resolve one.
+- (nullable NSString *)storageOwner:(NSError **)error {
+    NSError *disposed = [self disposedError];
+    if (disposed) {
+        if (error) {
+            *error = disposed;
+        }
+        return nil;
+    }
+    return [self.subscription configurationId:error];
+}
+
 - (void)uploadFileURL:(NSURL *)fileURL
               options:(ARTUploadOptions *)options
            completion:(void (^)(ARTFileRef *_Nullable,
                                 NSError *_Nullable))completion {
-    NSError *error = [self disposedError];
-    if (error) {
+    NSError *error = nil;
+    NSString *owner = [self storageOwner:&error];
+    if (!owner) {
         completion(nil, error);
         return;
     }
     ARTUploadOptions *scoped = options ? [options copy] : [[ARTUploadOptions alloc] init];
-    scoped.configId = self.threadId;
+    scoped.configId = owner;
+    scoped.threadId = self.threadId;
     [[[ARTStorage alloc] init] uploadFileURL:fileURL
                                      options:scoped
                                   completion:completion];
@@ -131,13 +207,15 @@
            options:(ARTUploadOptions *)options
         completion:(void (^)(ARTFileRef *_Nullable,
                              NSError *_Nullable))completion {
-    NSError *error = [self disposedError];
-    if (error) {
+    NSError *error = nil;
+    NSString *owner = [self storageOwner:&error];
+    if (!owner) {
         completion(nil, error);
         return;
     }
     ARTUploadOptions *scoped = options ? [options copy] : [[ARTUploadOptions alloc] init];
-    scoped.configId = self.threadId;
+    scoped.configId = owner;
+    scoped.threadId = self.threadId;
     [[[ARTStorage alloc] init] uploadData:data
                                  filename:filename
                               contentType:contentType
@@ -148,13 +226,15 @@
 - (void)listFilesWithOptions:(ARTListOptions *)options
                   completion:(void (^)(ARTStorageFileList *_Nullable,
                                        NSError *_Nullable))completion {
-    NSError *error = [self disposedError];
-    if (error) {
+    NSError *error = nil;
+    NSString *owner = [self storageOwner:&error];
+    if (!owner) {
         completion(nil, error);
         return;
     }
     ARTListOptions *scoped = options ? [options copy] : [[ARTListOptions alloc] init];
-    scoped.configId = self.threadId;
+    scoped.configId = owner;
+    scoped.threadId = self.threadId;
     [[[ARTStorage alloc] init] listFilesWithOptions:scoped completion:completion];
 }
 
@@ -277,6 +357,7 @@
 - (void)dispose {
     NSSet<NSString *> *events;
     NSArray<NSUUID *> *traceTokens;
+    NSUUID *connection;
     @synchronized(self) {
         if (_disposed) {
             return;
@@ -284,9 +365,15 @@
         _disposed = YES;
         events = [self.attachedEvents copy];
         traceTokens = [self.traceTokens copy];
+        connection = self.connectionListenerId;
         [self.attachedEvents removeAllObjects];
         [self.traceTokens removeAllObjects];
         self.stateBindToken = nil;
+        self.connectionListenerId = nil;
+    }
+
+    if (connection) {
+        [self.subscription offConnectionFailure:connection];
     }
 
     for (NSString *event in events) {
